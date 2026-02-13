@@ -2,4 +2,4 @@ doc.html
 prompt.html
 tree.txt
 
-.env
+*.env
