@@ -1,5 +1,3 @@
-// src/components/map/MapContainer.tsx
-import React from "react";
 import { APIProvider, Map, Marker } from "@vis.gl/react-google-maps";
 
 const API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
