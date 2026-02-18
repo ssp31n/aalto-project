@@ -122,6 +122,127 @@ def _normalize_activity_type(value: str) -> str:
     return "sightseeing"
 
 
+_REPEATABLE_HUB_KEYWORDS = [
+    "station",
+    "railway",
+    "bus terminal",
+    "terminal",
+    "port",
+    "harbor",
+    "harbour",
+    "pier",
+    "ferry",
+    "airport",
+    "metro",
+    "subway",
+    "downtown",
+    "city center",
+    "city centre",
+    "central",
+    "main square",
+    "shopping district",
+    "market hall",
+    "mall",
+    "plaza",
+]
+
+
+def _normalize_place_key(name: str) -> str:
+    normalized = re.sub(r"[^a-z0-9\s]", " ", (name or "").lower())
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+    return normalized
+
+
+def _is_repeatable_hub(place_name: str, description: str) -> bool:
+    text = f"{place_name} {description}".lower()
+    return any(keyword in text for keyword in _REPEATABLE_HUB_KEYWORDS)
+
+
+def _extract_area_hint(place_name: str, description: str) -> str | None:
+    text = f"{place_name} {description}".lower()
+    patterns = [
+        r"\b([a-z0-9'\- ]{2,40})\s+(district|neighborhood|neighbourhood|quarter|area)\b",
+        r"\b(old town|city center|city centre|downtown|waterfront)\b",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text)
+        if not match:
+            continue
+        hint = match.group(1).strip() if match.lastindex and match.lastindex >= 1 else match.group(0).strip()
+        hint = re.sub(r"\s+", " ", hint)
+        if hint:
+            return hint
+    return None
+
+
+def _de_duplicate_non_hub_places(days: list[dict]) -> list[dict]:
+    seen_non_hub: set[str] = set()
+    for day in days:
+        places = day.get("places", [])
+        if not places:
+            continue
+
+        deduped = []
+        for place in places:
+            place_name = place.get("placeName", "")
+            description = place.get("description", "")
+            key = _normalize_place_key(place_name)
+            if not key:
+                deduped.append(place)
+                continue
+
+            if _is_repeatable_hub(place_name, description):
+                deduped.append(place)
+                continue
+
+            if key in seen_non_hub and len(places) > 4:
+                continue
+
+            seen_non_hub.add(key)
+            deduped.append(place)
+
+        for idx, place in enumerate(deduped):
+            place["order"] = idx
+        day["places"] = deduped
+    return days
+
+
+def _reorder_days_for_area_variety(days: list[dict]) -> list[dict]:
+    if len(days) < 4:
+        return days
+
+    def dominant_area(day: dict) -> str | None:
+        scores: dict[str, int] = {}
+        for place in day.get("places", []):
+            hint = _extract_area_hint(place.get("placeName", ""), place.get("description", ""))
+            if not hint:
+                continue
+            scores[hint] = scores.get(hint, 0) + 1
+        if not scores:
+            return None
+        return max(scores.items(), key=lambda x: x[1])[0]
+
+    remaining = [{"day": day, "area": dominant_area(day)} for day in days]
+    unique_areas = {entry["area"] for entry in remaining if entry["area"]}
+    if len(unique_areas) < 2:
+        return days
+
+    ordered = [remaining.pop(0)]
+    while remaining:
+        prev_area = ordered[-1]["area"]
+        different_area_idx = next(
+            (i for i, entry in enumerate(remaining) if entry["area"] and entry["area"] != prev_area),
+            None
+        )
+        pick_idx = different_area_idx if different_area_idx is not None else 0
+        ordered.append(remaining.pop(pick_idx))
+
+    result = [entry["day"] for entry in ordered]
+    for idx, day in enumerate(result, start=1):
+        day["dayNumber"] = idx
+    return result
+
+
 def _normalize_plan_schema(plan_data: dict, requested_days: int, destination: str, style: str):
     raw_days = plan_data.get("days", [])
     normalized_days = []
@@ -167,6 +288,9 @@ def _normalize_plan_schema(plan_data: dict, requested_days: int, destination: st
     for idx, day in enumerate(normalized_days, start=1):
         day["dayNumber"] = idx
 
+    normalized_days = _de_duplicate_non_hub_places(normalized_days)
+    normalized_days = _reorder_days_for_area_variety(normalized_days)
+
     title = plan_data.get("title") or f"{destination} {style} 여행"
     return {"title": title, "days": normalized_days}
 
@@ -191,7 +315,7 @@ def _build_places_headers():
     return {
         "Content-Type": "application/json",
         "X-Goog-Api-Key": MAPS_API_KEY,
-        "X-Goog-FieldMask": "places.id,places.displayName,places.formattedAddress,places.rating,places.userRatingCount,places.photos,places.location,places.businessStatus"
+        "X-Goog-FieldMask": "places.id,places.displayName,places.formattedAddress,places.rating,places.userRatingCount,places.photos,places.location,places.businessStatus,places.types,places.primaryType,places.primaryTypeDisplayName,places.editorialSummary"
     }
 
 def _get_cache(cache: dict, key: str):
@@ -237,6 +361,40 @@ def _to_place_response(place: dict):
         photo_ref = place["photos"][0]["name"]
         photo_url = f"https://places.googleapis.com/v1/{photo_ref}/media?maxHeightPx=400&maxWidthPx=400&key={MAPS_API_KEY}"
 
+    def _hashtags_from_place(meta: dict) -> list[str]:
+        text = " ".join([
+            ((meta.get("displayName") or {}).get("text") or ""),
+            (meta.get("formattedAddress") or ""),
+            ((meta.get("editorialSummary") or {}).get("text") or ""),
+            " ".join(meta.get("types") or []),
+            str(meta.get("primaryType") or ""),
+            str(((meta.get("primaryTypeDisplayName") or {}).get("text") or "")),
+        ]).lower()
+
+        tag_rules = [
+            ("#ScenicSpot", ["viewpoint", "observation", "waterfront", "sunset", "panorama", "scenic"]),
+            ("#LocalFavorite", ["local", "popular", "authentic", "hidden"]),
+            ("#PhotoSpot", ["photo", "instagram", "iconic", "landmark"]),
+            ("#CozyCafe", ["cafe", "coffee", "bakery", "dessert"]),
+            ("#VibeRestaurant", ["restaurant", "bistro", "dining", "brasserie", "izakaya", "bbq"]),
+            ("#StreetFood", ["street_food", "food_court", "market"]),
+            ("#CultureTrip", ["museum", "gallery", "historic", "church", "cathedral", "monument"]),
+            ("#NatureWalk", ["park", "garden", "forest", "beach", "lake"]),
+            ("#ShoppingTime", ["shopping", "mall", "market", "plaza"]),
+            ("#NightOut", ["bar", "pub", "club", "night"]),
+        ]
+
+        tags = []
+        for tag, keywords in tag_rules:
+            if any(keyword in text for keyword in keywords):
+                tags.append(tag)
+            if len(tags) >= 3:
+                break
+
+        if not tags:
+            tags = ["#MustVisit"]
+        return tags[:3]
+
     return {
         "found": True,
         "canonicalName": (place.get("displayName") or {}).get("text"),
@@ -246,6 +404,7 @@ def _to_place_response(place: dict):
         "googlePlaceId": place.get("id"),
         "location": place.get("location", {"latitude": 0, "longitude": 0}),
         "photoUrl": photo_url,
+        "hashtags": _hashtags_from_place(place),
     }
 
 def _resolve_place_details(place_name: str, destination: str, headers: dict, destination_center: dict | None):
@@ -357,8 +516,18 @@ async def generate_plan(request: PlanRequest):
            - afternoon: sightseeing/activity
            - evening: dinner/night activity
            - avoid consecutive transport-hub stops (e.g., multiple terminals/pier/stations in a row) unless essential
+           - do not place meal spots back-to-back
+           - for ordinary restaurants/cafes, prioritize options close to the main movement corridor of the day
+           - allow detours only for clearly high-value dining spots (iconic/signature/famous)
         7) Exclude accommodation and flights completely from the itinerary.
-        8) Follow this schema exactly:
+        8) Avoid duplicate non-hub places across days:
+           - if a restaurant/attraction was already used in a previous day, do not repeat it
+           - exception: transport hubs and repeatable anchor spots are allowed (railway/bus terminals, ferry ports, city center, major shopping district)
+        9) For longer trips (4+ days), diversify by area:
+           - split the destination into multiple neighborhoods/districts
+           - each day should center on a different area as much as possible
+           - avoid itineraries where all days repeatedly stay in the same area
+        10) Follow this schema exactly:
         {{
           "title": "string",
           "days": [

@@ -42,6 +42,7 @@ export interface PlaceDetails {
     longitude: number;
   };
   photoUrl?: string | null;
+  hashtags?: string[];
 }
 
 export const getPlaceDetailsBatch = async (

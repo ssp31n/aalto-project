@@ -25,12 +25,170 @@ import type { Place, TravelPlan } from "../types/plan";
 import { MapContainer } from "../components/map/MapContainer";
 
 // --- Logic Helpers ---
+const getDistanceKm = (a: Place, b: Place) => {
+  if (!a.location || !b.location) return 1.2;
+  const r = 6371;
+  const dLat = ((b.location.lat - a.location.lat) * Math.PI) / 180;
+  const dLon = ((b.location.lng - a.location.lng) * Math.PI) / 180;
+  const x =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((a.location.lat * Math.PI) / 180) *
+      Math.cos((b.location.lat * Math.PI) / 180) *
+      Math.sin(dLon / 2) ** 2;
+  return r * (2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x)));
+};
+
+const routeDistanceScore = (arr: Place[]) => {
+  let sum = 0;
+  for (let i = 0; i < arr.length - 1; i++) sum += getDistanceKm(arr[i], arr[i + 1]);
+  return sum;
+};
+
+const nearestNeighbor = (arr: Place[]) => {
+  if (arr.length <= 2) return arr;
+  const rest = [...arr];
+  const result: Place[] = [rest.shift() as Place];
+  while (rest.length) {
+    const last = result[result.length - 1];
+    let bestIdx = 0;
+    let best = Number.POSITIVE_INFINITY;
+    for (let i = 0; i < rest.length; i++) {
+      const d = getDistanceKm(last, rest[i]);
+      if (d < best) {
+        best = d;
+        bestIdx = i;
+      }
+    }
+    result.push(rest[bestIdx]);
+    rest.splice(bestIdx, 1);
+  }
+  return result;
+};
+
+const twoOpt = (input: Place[]) => {
+  if (input.length < 4) return input;
+  let best = [...input];
+  let improved = true;
+  while (improved) {
+    improved = false;
+    for (let i = 1; i < best.length - 2; i++) {
+      for (let k = i + 1; k < best.length - 1; k++) {
+        const candidate = [
+          ...best.slice(0, i),
+          ...best.slice(i, k + 1).reverse(),
+          ...best.slice(k + 1),
+        ];
+        if (routeDistanceScore(candidate) + 0.01 < routeDistanceScore(best)) {
+          best = candidate;
+          improved = true;
+        }
+      }
+    }
+  }
+  return best;
+};
+
+type MealType = "breakfast" | "lunch" | "dinner" | "meal";
+
+const detectMealType = (place: Place): MealType => {
+  if (place.activityType !== "meal") return "meal";
+  const t = `${place.placeName} ${place.description}`.toLowerCase();
+  if (/(breakfast|brunch|bakery|morning)/.test(t)) return "breakfast";
+  if (/(lunch|bistro|deli|sandwich|noodle|ramen)/.test(t)) return "lunch";
+  if (/(dinner|bbq|grill|steak|izakaya|bar|wine|night)/.test(t)) return "dinner";
+  return "meal";
+};
+
+const isMustVisitMeal = (place: Place) => {
+  const t = `${place.placeName} ${place.description}`.toLowerCase();
+  if (/(michelin|famous|signature|iconic|award|must-visit)/.test(t)) return true;
+  return (place.rating ?? 0) >= 4.7 && (place.userRatingCount ?? 0) >= 1200;
+};
+
+const mealTemporalPenalty = (place: Place, idx: number, total: number) => {
+  if (place.activityType !== "meal") return 0;
+  const type = detectMealType(place);
+  const lunchCenter = Math.round(total * 0.45);
+  const dinnerMin = Math.max(2, Math.round(total * 0.65));
+  if (type === "breakfast") return idx > Math.max(1, Math.round(total * 0.3)) ? 8 : 0;
+  if (type === "lunch") return Math.abs(idx - lunchCenter) * 3;
+  if (type === "dinner") return idx < dinnerMin ? (dinnerMin - idx) * 7 : 0;
+  return Math.abs(idx - lunchCenter) * 2;
+};
+
+const bestInsertionIndex = (base: Place[], meal: Place) => {
+  let bestIdx = 0;
+  let bestScore = Number.POSITIVE_INFINITY;
+
+  for (let idx = 0; idx <= base.length; idx++) {
+    const prev = idx > 0 ? base[idx - 1] : null;
+    const next = idx < base.length ? base[idx] : null;
+    const distPenalty =
+      (prev ? getDistanceKm(prev, meal) : 0) +
+      (next ? getDistanceKm(meal, next) : 0) -
+      (prev && next ? getDistanceKm(prev, next) : 0);
+
+    const mustVisit = isMustVisitMeal(meal);
+    const travelWeight = mustVisit ? 1.2 : 2.8;
+    const temporal = mealTemporalPenalty(meal, idx, base.length + 1);
+    const consecutiveMealPenalty =
+      (prev?.activityType === "meal" ? 16 : 0) + (next?.activityType === "meal" ? 16 : 0);
+    const score = distPenalty * travelWeight + temporal + consecutiveMealPenalty;
+
+    if (score < bestScore) {
+      bestScore = score;
+      bestIdx = idx;
+    }
+  }
+
+  return bestIdx;
+};
+
 const optimizeRoute = (places: Place[]): Place[] => {
   if (places.length <= 2) return places.map((p, i) => ({ ...p, order: i }));
+
   const withLoc = places.filter((p) => p.location);
   const noLoc = places.filter((p) => !p.location);
-  withLoc.sort((a, b) => b.location!.lat - a.location!.lat);
-  return [...withLoc, ...noLoc].map((p, i) => ({ ...p, order: i }));
+  const meals = withLoc.filter((p) => p.activityType === "meal");
+  const nonMeals = withLoc.filter((p) => p.activityType !== "meal");
+
+  let route = nonMeals.length > 1 ? twoOpt(nearestNeighbor(nonMeals)) : [...nonMeals];
+  const orderedMeals = [...meals].sort((a, b) => {
+    const rank = (x: Place) =>
+      detectMealType(x) === "breakfast"
+        ? 0
+        : detectMealType(x) === "lunch"
+          ? 1
+          : detectMealType(x) === "dinner"
+            ? 2
+            : 3;
+    return rank(a) - rank(b);
+  });
+
+  for (const meal of orderedMeals) {
+    const idx = bestInsertionIndex(route, meal);
+    route.splice(idx, 0, meal);
+  }
+
+  route = twoOpt(route);
+  return [...route, ...noLoc].map((p, i) => ({ ...p, order: i }));
+};
+
+const toHHMM = (minutesFromMidnight: number) => {
+  const h = Math.floor(minutesFromMidnight / 60) % 24;
+  const m = minutesFromMidnight % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+};
+
+const applyApproxTimes = (places: Place[]) => {
+  let current = 9 * 60;
+  return places.map((place, idx) => {
+    const withTime = { ...place, approxTime: toHHMM(current) };
+    const next = places[idx + 1];
+    const transferMin = next ? Math.max(10, Math.min(35, Math.round(getDistanceKm(place, next) * 6))) : 0;
+    current += (place.durationMin || 90) + transferMin;
+    return withTime;
+  });
 };
 // --------------------
 
@@ -108,9 +266,12 @@ const PlanPage = () => {
           userRatingCount: details.userRatingCount,
           googlePlaceId: details.googlePlaceId,
           address: details.address,
+          hashtags: details.hashtags && details.hashtags.length > 0
+            ? details.hashtags
+            : place.hashtags,
         };
       });
-      day.places = optimizeRoute(enriched);
+      day.places = applyApproxTimes(optimizeRoute(enriched));
     }
     return nextPlan;
   };
@@ -469,12 +630,12 @@ const PlanPage = () => {
           </div>
         ) : (
           /* RESULT VIEW */
-          <div className="flex h-full w-full flex-col lg:flex-row">
+          <div className="flex h-full min-h-0 w-full flex-col lg:flex-row">
             {/* Left: Itinerary List */}
             <div
               className={`
                 ${mobileView === "map" ? "hidden" : "flex"} 
-                flex-1 flex-col bg-white lg:flex lg:w-[450px] lg:max-w-[450px] lg:flex-none lg:border-r lg:border-slate-200 lg:shadow-xl z-10
+                min-h-0 flex-1 flex-col bg-white lg:flex lg:w-[450px] lg:max-w-[450px] lg:flex-none lg:border-r lg:border-slate-200 lg:shadow-xl z-10
               `}
             >
               <ItineraryList
@@ -495,7 +656,7 @@ const PlanPage = () => {
             <div
               className={`
                 ${mobileView === "itinerary" ? "hidden lg:block" : "block"} 
-                relative flex-1 bg-slate-100
+                relative min-h-0 flex-1 bg-slate-100
               `}
             >
               <MapContainer
@@ -555,9 +716,15 @@ const PlanPage = () => {
                           <h4
                             className={`truncate text-sm font-bold ${isSelected ? "text-slate-900" : "text-slate-700"}`}
                           >
+                            {place.approxTime ? `${place.approxTime} · ` : ""}
                             {place.placeName}
                           </h4>
                         </div>
+                        {!!place.hashtags?.length && (
+                          <p className="mt-0.5 truncate text-[11px] font-semibold text-[#FC6076]">
+                            {place.hashtags.slice(0, 2).join(" ")}
+                          </p>
+                        )}
                         <p className="mt-0.5 truncate text-xs text-slate-500">
                           {place.description}
                         </p>

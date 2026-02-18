@@ -27,7 +27,7 @@ export const ItineraryList = ({
     plan.days.find((day) => day.dayNumber === activeDayNumber) ?? plan.days[0];
 
   return (
-    <div className="flex h-full w-full flex-col bg-white">
+    <div className="flex h-full min-h-0 w-full flex-col bg-white">
       {/* Title Header */}
       <div className="shrink-0 border-b border-slate-100 p-5 pb-2">
         <h2 className="text-2xl font-bold tracking-tight text-slate-900">
@@ -67,7 +67,7 @@ export const ItineraryList = ({
       </div>
 
       {/* Timeline List */}
-      <div className="flex-1 overflow-y-auto px-5 py-4 pb-24 lg:pb-8">
+      <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4 pb-24 lg:pb-8">
         <div className="relative space-y-0">
           {/* Vertical Connecting Line */}
           <div className="absolute left-[19px] top-4 bottom-4 w-0.5 bg-slate-100" />
@@ -128,15 +128,21 @@ export const ItineraryList = ({
                       </div>
 
                       <h3 className="mt-1 font-bold text-slate-900 truncate">
+                        {place.approxTime ? `${place.approxTime} · ` : ""}
                         {place.placeName}
                       </h3>
+                      {!!place.hashtags?.length && (
+                        <p className="mt-1 truncate text-[11px] font-semibold text-[#FC6076]">
+                          {place.hashtags.slice(0, 3).join(" ")}
+                        </p>
+                      )}
                       <p className="mt-1 line-clamp-2 text-xs text-slate-500">
                         {place.description}
                       </p>
 
                       <div className="mt-3 flex items-center gap-3 text-xs text-slate-400">
                         <span className="flex items-center gap-1">
-                          🕓 {place.durationMin}m
+                          {place.durationMin}m
                         </span>
                       </div>
                     </div>

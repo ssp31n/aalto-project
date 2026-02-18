@@ -15,6 +15,8 @@ export interface Place {
   rating?: number;
   userRatingCount?: number;
   address?: string;
+  hashtags?: string[];
+  approxTime?: string;
 }
 
 export interface DayPlan {
@@ -101,6 +103,13 @@ export const normalizeTravelPlan = (input: unknown): TravelPlan => {
               ? placeObj.userRatingCount
               : undefined,
           address: typeof placeObj.address === "string" ? placeObj.address : undefined,
+          hashtags:
+            Array.isArray(placeObj.hashtags) &&
+            placeObj.hashtags.every((item) => typeof item === "string")
+              ? (placeObj.hashtags as string[]).slice(0, 4)
+              : undefined,
+          approxTime:
+            typeof placeObj.approxTime === "string" ? placeObj.approxTime : undefined,
         };
         if (place.placeName.length > 0) acc.push(place);
         return acc;

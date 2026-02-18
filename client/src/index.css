@@ -33,6 +33,14 @@
   textarea {
     @apply text-base;
   }
+
+  input[type="date"] {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    -webkit-appearance: none;
+    appearance: none;
+  }
 }
 
 @layer utilities {
