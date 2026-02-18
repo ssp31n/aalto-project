@@ -1,5 +1,4 @@
-// client/src/services/api.ts
-import type { TravelPlan } from "../types/plan";
+import { normalizeTravelPlan, type TravelPlan } from "../types/plan";
 
 const API_BASE_URL = "http://localhost:8000/api";
 
@@ -8,69 +7,64 @@ interface GeneratePlanParams {
   days: number;
   companions: string;
   style: string;
+  transportation: string;
+  month: string;
+  useWebSearch?: boolean;
 }
 
 export const generatePlan = async (
   params: GeneratePlanParams,
 ): Promise<TravelPlan> => {
-  try {
-    const response = await fetch(`${API_BASE_URL}/generate-plan`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(params),
-    });
+  const response = await fetch(`${API_BASE_URL}/plans/generate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(params),
+  });
 
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.detail || "여행 계획 생성에 실패했습니다.");
-    }
-
-    return await response.json();
-  } catch (error) {
-    console.error("API Error:", error);
-    throw error;
+  if (!response.ok) {
+    const errorData = await response.json();
+    throw new Error(errorData.detail || "Failed to generate travel plan.");
   }
+
+  const data = await response.json();
+  return normalizeTravelPlan(data);
 };
 
 export interface PlaceDetails {
   found: boolean;
+  canonicalName?: string;
   address?: string;
   rating?: number;
+  userRatingCount?: number;
+  googlePlaceId?: string;
   location?: {
     latitude: number;
     longitude: number;
   };
   photoUrl?: string | null;
+  businessStatus?: string;
+  openNow?: boolean | null;
 }
 
-// [수정됨] destination 인자 추가 (기본값 "")
-export const getPlaceDetails = async (
-  placeName: string,
-  destination: string = "",
-): Promise<PlaceDetails> => {
+export const getPlaceDetailsBatch = async (
+  placeNames: string[],
+  destination = "",
+): Promise<Record<string, PlaceDetails>> => {
   try {
-    // [핵심 수정] 검색어에 여행지 이름을 붙여서 정확도 향상
-    // 예: "스타벅스" -> "스타벅스 in 오사카"
-    const query = destination ? `${placeName} in ${destination}` : placeName;
-
-    const response = await fetch(`${API_BASE_URL}/get-place-details`, {
+    const response = await fetch(`${API_BASE_URL}/get-place-details-batch`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      // 서버는 placeName 필드를 기대하므로, 조작된 쿼리를 넣어서 보냄
-      body: JSON.stringify({ placeName: query }),
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ placeNames, destination }),
     });
 
     if (!response.ok) {
-      throw new Error("Failed to fetch place details");
+      throw new Error("Failed to fetch place details batch");
     }
 
-    return await response.json();
+    const data = await response.json();
+    return data.results ?? {};
   } catch (error) {
     console.error("API Error:", error);
-    return { found: false };
+    return {};
   }
 };

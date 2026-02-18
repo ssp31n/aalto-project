@@ -1,35 +1,35 @@
-# server/main.py
 import os
 import json
+import re
 import requests
+import time
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
-import vertexai
-from vertexai.generative_models import GenerativeModel
 
-# 1. .env 파일에서 환경 변수 불러오기
+from google import genai
+from google.genai import types
+
 load_dotenv()
 
-# 2. Google Cloud 및 Vertex AI 설정
 PROJECT_ID = os.getenv("GCP_PROJECT_ID")
-LOCATION = os.getenv("GCP_LOCATION", "asia-northeast3") 
-CREDENTIALS_PATH = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+LOCATION = os.getenv("GCP_LOCATION", "asia-northeast3")
 MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY")
 
-# Vertex AI 초기화
+client = None
 try:
-    vertexai.init(project=PROJECT_ID, location=LOCATION)
-    model = GenerativeModel("gemini-2.5-flash")
-    print(f"✅ Vertex AI Initialized (Region: {LOCATION})")
+    client = genai.Client(
+        vertexai=True,
+        project=PROJECT_ID,
+        location=LOCATION
+    )
+    print("Google Gen AI Client initialized (Vertex AI mode)")
 except Exception as e:
-    print(f"❌ Vertex AI Init Failed: {e}")
+    print(f"Client init failed: {e}")
 
-# 3. FastAPI 앱 생성
 app = FastAPI()
 
-# 4. CORS 설정
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173"],
@@ -38,116 +38,389 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 5. 요청 데이터 검증 모델
+PLACE_CACHE_TTL_SEC = 60 * 60 * 6
+destination_center_cache: dict[str, tuple[float, dict]] = {}
+place_details_cache: dict[str, tuple[float, dict]] = {}
+
 class PlanRequest(BaseModel):
     destination: str
     days: int
     companions: str
     style: str
+    transportation: str
+    month: str
+    useWebSearch: bool = False
 
 class PlaceDetailRequest(BaseModel):
     placeName: str
+    destination: str | None = None
+
+class PlaceDetailsBatchRequest(BaseModel):
+    placeNames: list[str]
+    destination: str | None = None
 
 @app.get("/")
 def read_root():
-    return {"message": "TripFlow API is running with FastAPI 🚀"}
+    return {"message": "TripFlow API is running"}
 
-# 6. 여행 계획 생성 API (핵심 프롬프트 수정됨)
-@app.post("/api/generate-plan")
-async def generate_plan(request: PlanRequest):
-    print(f"[Request] 여행지: {request.destination}, 기간: {request.days}일")
+def _extract_json_object(text: str):
+    text = (text or "").strip()
+    if not text:
+        raise ValueError("Empty response from model")
 
     try:
-        # [핵심 수정] AI에게 구체적인 장소명을 요구하는 프롬프트
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+
+    match = re.search(r"```(?:json)?\s*(.*?)```", text, re.DOTALL)
+    if match:
+        block = match.group(1).strip()
+        try:
+            return json.loads(block)
+        except json.JSONDecodeError:
+            pass
+
+    obj_match = re.search(r"\{.*\}", text, re.DOTALL)
+    if obj_match:
+        return json.loads(obj_match.group(0))
+
+    raise ValueError("No parseable JSON object found in model response")
+
+
+def _normalize_activity_type(value: str) -> str:
+    lowered = (value or "").strip().lower()
+    if lowered in {"meal", "sightseeing", "activity"}:
+        return lowered
+    if any(k in lowered for k in ["식당", "맛집", "meal", "restaurant", "cafe", "카페"]):
+        return "meal"
+    if any(k in lowered for k in ["체험", "activity", "액티비티"]):
+        return "activity"
+    return "sightseeing"
+
+
+def _normalize_plan_schema(plan_data: dict, requested_days: int, destination: str, style: str):
+    raw_days = plan_data.get("days", [])
+    normalized_days = []
+
+    for day_index, raw_day in enumerate(raw_days, start=1):
+        places = raw_day.get("places", [])
+        normalized_places = []
+
+        for place_index, raw_place in enumerate(places):
+            try:
+                duration_min = int(raw_place.get("durationMin", 90))
+            except (TypeError, ValueError):
+                duration_min = 90
+
+            activity_type = _normalize_activity_type(
+                raw_place.get("activityType") or raw_place.get("theme") or ""
+            )
+            text = f"{raw_place.get('placeName', '')} {raw_place.get('description', '')}".lower()
+            if any(k in text for k in ["hotel", "hostel", "accommodation", "숙소", "flight", "airport", "항공"]):
+                continue
+
+            normalized_places.append({
+                "order": place_index,
+                "placeName": raw_place.get("placeName", "").strip(),
+                "description": raw_place.get("description", "").strip(),
+                "activityType": activity_type,
+                "durationMin": duration_min if duration_min > 0 else 90
+            })
+
+        normalized_days.append({
+            "dayNumber": int(raw_day.get("dayNumber", raw_day.get("day", day_index))),
+            "places": normalized_places
+        })
+
+    if requested_days > 0:
+        normalized_days = normalized_days[:requested_days]
+        while len(normalized_days) < requested_days:
+            normalized_days.append({
+                "dayNumber": len(normalized_days) + 1,
+                "places": []
+            })
+
+    for idx, day in enumerate(normalized_days, start=1):
+        day["dayNumber"] = idx
+
+    title = plan_data.get("title") or f"{destination} {style} 여행"
+    return {"title": title, "days": normalized_days}
+
+def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    from math import radians, sin, cos, sqrt, atan2
+
+    r = 6371.0
+    d_lat = radians(lat2 - lat1)
+    d_lon = radians(lon2 - lon1)
+    a = sin(d_lat / 2) ** 2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(d_lon / 2) ** 2
+    c = 2 * atan2(sqrt(a), sqrt(1 - a))
+    return r * c
+
+def _search_text(payload: dict, headers: dict):
+    url = "https://places.googleapis.com/v1/places:searchText"
+    response = requests.post(url, json=payload, headers=headers, timeout=15)
+    response.raise_for_status()
+    data = response.json()
+    return data.get("places", [])
+
+def _build_places_headers():
+    return {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": MAPS_API_KEY,
+        "X-Goog-FieldMask": "places.id,places.displayName,places.formattedAddress,places.rating,places.userRatingCount,places.photos,places.location,places.businessStatus,places.currentOpeningHours"
+    }
+
+def _get_cache(cache: dict, key: str):
+    hit = cache.get(key)
+    if not hit:
+        return None
+    cached_at, value = hit
+    if time.time() - cached_at > PLACE_CACHE_TTL_SEC:
+        del cache[key]
+        return None
+    return value
+
+def _set_cache(cache: dict, key: str, value: dict):
+    cache[key] = (time.time(), value)
+
+def _resolve_destination_center(destination: str, headers: dict):
+    normalized_destination = destination.strip().lower()
+    if not normalized_destination:
+        return None
+
+    cached = _get_cache(destination_center_cache, normalized_destination)
+    if cached:
+        return cached
+
+    destination_candidates = _search_text({"textQuery": destination}, headers)
+    if not destination_candidates:
+        return None
+
+    loc = destination_candidates[0].get("location")
+    if not loc:
+        return None
+
+    center = {
+        "latitude": loc.get("latitude"),
+        "longitude": loc.get("longitude"),
+    }
+    _set_cache(destination_center_cache, normalized_destination, center)
+    return center
+
+def _to_place_response(place: dict):
+    photo_url = None
+    if "photos" in place and len(place["photos"]) > 0:
+        photo_ref = place["photos"][0]["name"]
+        photo_url = f"https://places.googleapis.com/v1/{photo_ref}/media?maxHeightPx=400&maxWidthPx=400&key={MAPS_API_KEY}"
+
+    opening_hours = place.get("currentOpeningHours", {})
+    open_now = opening_hours.get("openNow", None) if opening_hours else None
+
+    return {
+        "found": True,
+        "canonicalName": (place.get("displayName") or {}).get("text"),
+        "address": place.get("formattedAddress", ""),
+        "rating": place.get("rating", 0),
+        "userRatingCount": place.get("userRatingCount", 0),
+        "googlePlaceId": place.get("id"),
+        "location": place.get("location", {"latitude": 0, "longitude": 0}),
+        "photoUrl": photo_url,
+        "businessStatus": place.get("businessStatus", "UNKNOWN"),
+        "openNow": open_now
+    }
+
+def _resolve_place_details(place_name: str, destination: str, headers: dict, destination_center: dict | None):
+    cache_key = f"{place_name.strip().lower()}::{destination.strip().lower()}"
+    cached = _get_cache(place_details_cache, cache_key)
+    if cached:
+        return cached
+
+    payload = {"textQuery": place_name}
+    if destination_center:
+        payload["locationBias"] = {
+            "circle": {
+                "center": destination_center,
+                "radius": 50000.0
+            }
+        }
+
+    candidates = _search_text(payload, headers)
+    if not candidates and destination:
+        candidates = _search_text(
+            {"textQuery": f"{place_name}, {destination}"},
+            headers
+        )
+
+    if not candidates:
+        result = {"found": False}
+        _set_cache(place_details_cache, cache_key, result)
+        return result
+
+    normalized_destination = destination.lower()
+    ranked = []
+    for place in candidates:
+        score = 0
+        address = place.get("formattedAddress", "").lower()
+        if normalized_destination and normalized_destination in address:
+            score += 10
+
+        if destination_center and place.get("location"):
+            distance = _haversine_km(
+                destination_center["latitude"],
+                destination_center["longitude"],
+                place["location"]["latitude"],
+                place["location"]["longitude"],
+            )
+            if distance <= 60:
+                score += 8
+            elif distance <= 120:
+                score += 3
+            else:
+                score -= 10
+
+        if place.get("businessStatus") == "OPERATIONAL":
+            score += 3
+
+        ranked.append((score, place))
+
+    ranked.sort(key=lambda x: x[0], reverse=True)
+    best_score, best_place = ranked[0]
+    if best_score < 0:
+        result = {"found": False}
+        _set_cache(place_details_cache, cache_key, result)
+        return result
+
+    result = _to_place_response(best_place)
+    _set_cache(place_details_cache, cache_key, result)
+    return result
+
+
+@app.post("/api/plans/generate")
+@app.post("/api/generate-plan")
+async def generate_plan(request: PlanRequest):
+    print(f"[Request] {request.destination}, {request.month}, {request.transportation}")
+
+    if not client:
+        raise HTTPException(status_code=500, detail="Gen AI Client not initialized")
+
+    try:
+        use_web_search = request.useWebSearch
+        tool_instruction = (
+            "Use Google Search tool to verify real-world availability and recency before suggesting places."
+            if use_web_search
+            else "Do not browse the web. Generate a practical and coherent plan quickly."
+        )
+
         prompt = f"""
-        당신은 전문 여행 플래너입니다. 아래 정보를 바탕으로 여행 계획을 짜주세요.
-        
-        [여행 정보]
-        - 여행지: {request.destination}
-        - 기간: {request.days}일
-        - 동행: {request.companions}
-        - 스타일: {request.style}
+        Current date is February 18, 2026.
+        {tool_instruction}
 
-        [필수 규칙]
-        1. `placeName` 필드에는 '점심 식사', '호텔 체크인', '기념품 쇼핑', '자유 시간' 같은 추상적인 활동명을 절대 적지 마세요.
-        2. 반드시 Google Maps에서 검색 가능한 **실제 장소의 구체적인 고유 명사**(예: '스토크만 백화점', '카페 레가타', '디자인 박물관', '식당 이름')를 적어야 합니다.
-        3. 활동에 대한 설명(예: 기념품 사기, 커피 마시기)은 `description` 필드에 적으세요.
-        4. 동선은 효율적으로 짜주세요.
+        Trip context:
+        - Destination: {request.destination}
+        - Month: {request.month} (year 2026)
+        - Duration: {request.days} days
+        - Companions: {request.companions}
+        - Transportation: {request.transportation}
+        - Style: {request.style}
 
-        반드시 아래 JSON 형식으로만 응답해주세요. 마크다운(\`\`\`)이나 서론/결론 같은 추가 텍스트는 넣지 마세요. 순수 JSON만 반환하세요.
+        Rules:
+        1) Exclude permanently closed places.
+        2) Optimize each day's route for nearby spots and realistic movement.
+        3) Return ONLY a valid JSON object. No markdown, no commentary.
+        4) Use exact official place names (disambiguated), e.g., "Helsinki Central Railway Station" not "Central Station".
+        5) Keep each day dense and practical:
+           - 6 to 8 places per day
+           - total activity duration per day: 480 to 660 minutes
+           - avoid long idle gaps
+        6) Ensure temporal flow is natural:
+           - morning: sightseeing/activity/cafe
+           - midday: lunch
+           - afternoon: sightseeing/activity
+           - evening: dinner/night activity
+           - avoid consecutive transport-hub stops (e.g., multiple terminals/pier/stations in a row) unless essential
+        7) Exclude accommodation and flights completely from the itinerary.
+        8) Follow this schema exactly:
         {{
-            "title": "여행 제목 (예: 핀란드 힐링 여행)",
-            "days": [
+          "title": "string",
+          "days": [
+            {{
+              "dayNumber": 1,
+              "places": [
                 {{
-                    "day": 1,
-                    "places": [
-                        {{
-                            "placeName": "장소명 (실제 검색 가능한 고유명사 필수)",
-                            "description": "구체적인 활동 내용 및 추천 이유",
-                            "theme": "식사" 
-                        }}
-                    ]
+                  "placeName": "Official place name searchable on Google Maps",
+                  "activityType": "meal|sightseeing|activity",
+                  "description": "Why this matches the trip style",
+                  "durationMin": 90
                 }}
-            ]
+              ]
+            }}
+          ]
         }}
+
+        Ensure the itinerary has exactly {request.days} day entries.
         """
 
-        response = model.generate_content(prompt)
-        text = response.text
-        print("[AI Response]", text)
+        config = types.GenerateContentConfig(temperature=0.4)
+        if use_web_search:
+            config = types.GenerateContentConfig(
+                tools=[types.Tool(google_search=types.GoogleSearch())],
+                temperature=0.4
+            )
 
-        # 응답 데이터 전처리
-        clean_text = text.replace("```json", "").replace("```", "").strip()
-        
-        plan_data = json.loads(clean_text)
-        return plan_data
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=prompt,
+            config=config
+        )
+
+        plan_data = _extract_json_object(response.text or "")
+        normalized_plan = _normalize_plan_schema(
+            plan_data=plan_data,
+            requested_days=request.days,
+            destination=request.destination,
+            style=request.style
+        )
+        return normalized_plan
 
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"Error during generation: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-# 7. 장소 정보 조회 API
 @app.post("/api/get-place-details")
 async def get_place_details(request: PlaceDetailRequest):
     if not MAPS_API_KEY:
-        raise HTTPException(status_code=500, detail="Server Maps API Key not configured")
-
-    url = "https://places.googleapis.com/v1/places:searchText"
-    
-    headers = {
-        "Content-Type": "application/json",
-        "X-Goog-Api-Key": MAPS_API_KEY,
-        "X-Goog-FieldMask": "places.id,places.formattedAddress,places.rating,places.photos,places.location" 
-    }
-    
-    # Client에서 이미 "장소명 + 여행지" 형태로 조합해서 보내주므로 그대로 사용
-    payload = {
-        "textQuery": request.placeName
-    }
+        raise HTTPException(status_code=500, detail="API Key missing")
 
     try:
-        response = requests.post(url, json=payload, headers=headers)
-        data = response.json()
-        
-        if "places" in data and len(data["places"]) > 0:
-            place = data["places"][0]
-            
-            photo_url = None
-            if "photos" in place and len(place["photos"]) > 0:
-                photo_ref = place["photos"][0]["name"]
-                # 이미지 크기 파라미터 수정 (maxHeightPx, maxWidthPx)
-                photo_url = f"https://places.googleapis.com/v1/{photo_ref}/media?maxHeightPx=400&maxWidthPx=400&key={MAPS_API_KEY}"
-
-            return {
-                "found": True,
-                "address": place.get("formattedAddress", ""),
-                "rating": place.get("rating", 0),
-                "location": place.get("location", {"latitude": 0, "longitude": 0}),
-                "photoUrl": photo_url
-            }
-        else:
-            return {"found": False}
+        headers = _build_places_headers()
+        destination = (request.destination or "").strip()
+        destination_center = _resolve_destination_center(destination, headers) if destination else None
+        return _resolve_place_details(request.placeName, destination, headers, destination_center)
 
     except Exception as e:
-        print(f"Places API Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/get-place-details-batch")
+async def get_place_details_batch(request: PlaceDetailsBatchRequest):
+    if not MAPS_API_KEY:
+        raise HTTPException(status_code=500, detail="API Key missing")
+
+    try:
+        headers = _build_places_headers()
+        destination = (request.destination or "").strip()
+        destination_center = _resolve_destination_center(destination, headers) if destination else None
+        unique_names = list(dict.fromkeys([name.strip() for name in request.placeNames if name.strip()]))
+
+        results = {}
+        for place_name in unique_names:
+            results[place_name] = _resolve_place_details(
+                place_name=place_name,
+                destination=destination,
+                headers=headers,
+                destination_center=destination_center
+            )
+
+        return {"results": results}
+    except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

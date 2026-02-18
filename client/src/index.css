@@ -2,7 +2,46 @@
 @tailwind components;
 @tailwind utilities;
 
-/* 폰트 설정 (선택사항) */
+:root {
+  --bg: #f8fafc;
+  --text: #0f172a;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  min-height: 100%;
+}
+
 body {
-  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Sora", "Manrope", "Pretendard", "Noto Sans KR", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+@keyframes softPulse {
+  0% {
+    opacity: 0.58;
+    transform: scaleX(0.9);
+  }
+  50% {
+    opacity: 1;
+    transform: scaleX(1);
+  }
+  100% {
+    opacity: 0.58;
+    transform: scaleX(0.9);
+  }
+}
+
+.loading-wave {
+  animation: softPulse 1.5s ease-in-out infinite;
 }
