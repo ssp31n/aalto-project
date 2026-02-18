@@ -1,43 +1,89 @@
+@import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css");
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
   --bg: #f8fafc;
-  --text: #0f172a;
+  --text: #1e293b;
+  --primary: #6366f1;
 }
 
-* {
-  box-sizing: border-box;
-}
-
-html,
-body,
-#root {
-  width: 100%;
-  min-height: 100%;
-}
-
-body {
-  margin: 0;
-  background: var(--bg);
-  color: var(--text);
-  font-family: "Sora", "Manrope", "Pretendard", "Noto Sans KR", sans-serif;
-  -webkit-font-smoothing: antialiased;
-  text-rendering: optimizeLegibility;
-}
-
-@keyframes softPulse {
-  0% {
-    opacity: 0.58;
-    transform: scaleX(0.9);
+@layer base {
+  html {
+    -webkit-tap-highlight-color: transparent;
   }
-  50% {
-    opacity: 1;
-    transform: scaleX(1);
+
+  body {
+    @apply bg-slate-50 text-slate-900 antialiased;
+    font-family:
+      "Pretendard",
+      -apple-system,
+      BlinkMacSystemFont,
+      system-ui,
+      Roboto,
+      sans-serif;
+  }
+
+  /* iOS Input Zoom 방지 */
+  input,
+  select,
+  textarea {
+    @apply text-base;
+  }
+}
+
+@layer utilities {
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  /* Glassmorphism Utilities */
+  .glass {
+    @apply bg-white/70 backdrop-blur-md border border-white/20 shadow-lg;
+  }
+
+  .glass-dark {
+    @apply bg-slate-900/80 backdrop-blur-md border border-white/10 shadow-xl;
+  }
+
+  /* Custom Scrollbar for Desktop */
+  @media (min-width: 1024px) {
+    .custom-scrollbar::-webkit-scrollbar {
+      width: 6px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb {
+      @apply bg-slate-200 rounded-full;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+      @apply bg-slate-300;
+    }
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -1000px 0;
   }
   100% {
-    opacity: 0.58;
-    transform: scaleX(0.9);
+    background-position: 1000px 0;
   }
+}
+
+.animate-shimmer {
+  animation: shimmer 2s infinite linear;
+  background: linear-gradient(to right, #f1f5f9 4%, #e2e8f0 25%, #f1f5f9 36%);
+  background-size: 1000px 100%;
 }

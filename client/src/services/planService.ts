@@ -20,13 +20,41 @@ export interface UserPlanSummary {
   createdAt?: Date;
 }
 
+const stripUndefinedDeep = (value: unknown): unknown => {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => stripUndefinedDeep(item))
+      .filter((item) => item !== undefined);
+  }
+
+  if (value && Object.prototype.toString.call(value) === "[object Object]") {
+    const obj = value as Record<string, unknown>;
+    const cleaned = Object.entries(obj).reduce<Record<string, unknown>>(
+      (acc, [key, innerValue]) => {
+        const next = stripUndefinedDeep(innerValue);
+        if (next !== undefined) acc[key] = next;
+        return acc;
+      },
+      {},
+    );
+    return cleaned;
+  }
+
+  return value;
+};
+
 export const savePlan = async (plan: TravelPlan, userId: string) => {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { id, ...planData } = plan;
+  const sanitizedPlanData = stripUndefinedDeep(planData) as Record<string, unknown>;
+
   const docRef = await addDoc(collection(db, "plans"), {
-    ...plan,
+    ...sanitizedPlanData,
     ownerId: userId,
     createdAt: serverTimestamp(),
     isPublic: true,
   });
+
   return docRef.id;
 };
 
@@ -46,11 +74,10 @@ export const deletePlan = async (planId: string) => {
   await deleteDoc(doc(db, "plans", planId));
 };
 
-export const listUserPlans = async (userId: string): Promise<UserPlanSummary[]> => {
-  const q = query(
-    collection(db, "plans"),
-    where("ownerId", "==", userId),
-  );
+export const listUserPlans = async (
+  userId: string,
+): Promise<UserPlanSummary[]> => {
+  const q = query(collection(db, "plans"), where("ownerId", "==", userId));
 
   const snapshot = await getDocs(q);
   const rows = snapshot.docs.map((item) => {
@@ -69,6 +96,8 @@ export const listUserPlans = async (userId: string): Promise<UserPlanSummary[]> 
       createdAt: data.createdAt?.toDate?.(),
     };
   });
-  rows.sort((a, b) => (b.createdAt?.getTime() ?? 0) - (a.createdAt?.getTime() ?? 0));
+  rows.sort(
+    (a, b) => (b.createdAt?.getTime() ?? 0) - (a.createdAt?.getTime() ?? 0),
+  );
   return rows;
 };

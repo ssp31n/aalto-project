@@ -1,6 +1,6 @@
 import { useNavigate } from "react-router-dom";
 import { PlaneIcon } from "../components/ui/icons";
-import { useAuth } from "../contexts/AuthContext";
+import { useAuth } from "../contexts/useAuth";
 
 const Login = () => {
   const { signInWithGoogle } = useAuth();
