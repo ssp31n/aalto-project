@@ -51,10 +51,6 @@ class PlanRequest(BaseModel):
     month: str
     useWebSearch: bool = False
 
-class PlaceDetailRequest(BaseModel):
-    placeName: str
-    destination: str | None = None
-
 class PlaceDetailsBatchRequest(BaseModel):
     placeNames: list[str]
     destination: str | None = None
@@ -168,7 +164,7 @@ def _build_places_headers():
     return {
         "Content-Type": "application/json",
         "X-Goog-Api-Key": MAPS_API_KEY,
-        "X-Goog-FieldMask": "places.id,places.displayName,places.formattedAddress,places.rating,places.userRatingCount,places.photos,places.location,places.businessStatus,places.currentOpeningHours"
+        "X-Goog-FieldMask": "places.id,places.displayName,places.formattedAddress,places.rating,places.userRatingCount,places.photos,places.location,places.businessStatus"
     }
 
 def _get_cache(cache: dict, key: str):
@@ -214,9 +210,6 @@ def _to_place_response(place: dict):
         photo_ref = place["photos"][0]["name"]
         photo_url = f"https://places.googleapis.com/v1/{photo_ref}/media?maxHeightPx=400&maxWidthPx=400&key={MAPS_API_KEY}"
 
-    opening_hours = place.get("currentOpeningHours", {})
-    open_now = opening_hours.get("openNow", None) if opening_hours else None
-
     return {
         "found": True,
         "canonicalName": (place.get("displayName") or {}).get("text"),
@@ -226,8 +219,6 @@ def _to_place_response(place: dict):
         "googlePlaceId": place.get("id"),
         "location": place.get("location", {"latitude": 0, "longitude": 0}),
         "photoUrl": photo_url,
-        "businessStatus": place.get("businessStatus", "UNKNOWN"),
-        "openNow": open_now
     }
 
 def _resolve_place_details(place_name: str, destination: str, headers: dict, destination_center: dict | None):
@@ -385,20 +376,6 @@ async def generate_plan(request: PlanRequest):
 
     except Exception as e:
         print(f"Error during generation: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/api/get-place-details")
-async def get_place_details(request: PlaceDetailRequest):
-    if not MAPS_API_KEY:
-        raise HTTPException(status_code=500, detail="API Key missing")
-
-    try:
-        headers = _build_places_headers()
-        destination = (request.destination or "").strip()
-        destination_center = _resolve_destination_center(destination, headers) if destination else None
-        return _resolve_place_details(request.placeName, destination, headers, destination_center)
-
-    except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/get-place-details-batch")

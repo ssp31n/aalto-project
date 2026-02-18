@@ -41,7 +41,3 @@ body {
     transform: scaleX(0.9);
   }
 }
-
-.loading-wave {
-  animation: softPulse 1.5s ease-in-out infinite;
-}

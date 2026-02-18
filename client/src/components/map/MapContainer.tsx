@@ -20,7 +20,7 @@ const createPinDataUri = (index: number, color: string) => {
 
 const RoutePolyline = ({ path }: { path: { lat: number; lng: number }[] }) => {
   const map = useMap();
-  const polylineRef = useRef<any>(null);
+  const polylineRef = useRef<{ setMap: (map: object | null) => void } | null>(null);
 
   useEffect(() => {
     if (!map || !window.google) return;
@@ -101,6 +101,9 @@ export const MapContainer = ({
   emptyKeyMessage,
 }: MapContainerProps) => {
   const defaultCenter = { lat: 60.1699, lng: 24.9384 };
+  const canUseGoogleSize =
+    typeof window !== "undefined" &&
+    Boolean((window as Window & { google?: { maps?: unknown } }).google?.maps);
 
   const activeDay = useMemo(() => {
     if (!plan) return null;
@@ -144,10 +147,16 @@ export const MapContainer = ({
                     key={`${activeDay.dayNumber}-${idx}`}
                     position={place.location}
                     title={place.placeName}
-                    icon={{
-                      url: createPinDataUri(idx, DAY_COLOR),
-                      scaledSize: new window.google.maps.Size(34, 42),
-                    }}
+                    icon={
+                      canUseGoogleSize
+                        ? {
+                            url: createPinDataUri(idx, DAY_COLOR),
+                            scaledSize: new window.google.maps.Size(34, 42),
+                          }
+                        : {
+                            url: createPinDataUri(idx, DAY_COLOR),
+                          }
+                    }
                     zIndex={selectedPlaceName === place.placeName ? 999 : 1}
                   />
                 ) : null,

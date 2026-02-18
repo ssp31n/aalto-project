@@ -6,15 +6,6 @@ const BaseIcon = ({ children, ...props }: SVGProps<SVGSVGElement>) => (
   </svg>
 );
 
-export const GlobeIcon = (props: SVGProps<SVGSVGElement>) => (
-  <BaseIcon {...props}>
-    <circle cx="12" cy="12" r="9" />
-    <path d="M3 12h18" />
-    <path d="M12 3c2.8 2.7 2.8 15.3 0 18" />
-    <path d="M12 3c-2.8 2.7-2.8 15.3 0 18" />
-  </BaseIcon>
-);
-
 export const LogoutIcon = (props: SVGProps<SVGSVGElement>) => (
   <BaseIcon {...props}>
     <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
@@ -73,13 +64,6 @@ export const SparkIcon = (props: SVGProps<SVGSVGElement>) => (
     <path d="M12 2l1.6 4.4L18 8l-4.4 1.6L12 14l-1.6-4.4L6 8l4.4-1.6L12 2z" />
     <path d="M5 16l.8 2.2L8 19l-2.2.8L5 22l-.8-2.2L2 19l2.2-.8L5 16z" />
   </BaseIcon>
-);
-
-export const PinIcon = ({ color = "#0ea5e9", ...props }: SVGProps<SVGSVGElement> & { color?: string }) => (
-  <svg viewBox="0 0 28 28" aria-hidden="true" {...props}>
-    <path d="M14 2c-4.8 0-8.7 3.8-8.7 8.5 0 6.2 8.7 15.5 8.7 15.5s8.7-9.3 8.7-15.5C22.7 5.8 18.8 2 14 2z" fill={color} />
-    <circle cx="14" cy="10.6" r="4.2" fill="white" />
-  </svg>
 );
 
 export const PlaneIcon = (props: SVGProps<SVGSVGElement>) => (

@@ -42,8 +42,6 @@ export interface PlaceDetails {
     longitude: number;
   };
   photoUrl?: string | null;
-  businessStatus?: string;
-  openNow?: boolean | null;
 }
 
 export const getPlaceDetailsBatch = async (

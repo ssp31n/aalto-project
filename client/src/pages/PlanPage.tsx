@@ -110,6 +110,126 @@ const twoOpt = (input: Place[]): Place[] => {
   return best;
 };
 
+type MealType = "breakfast" | "lunch" | "dinner" | "meal";
+
+const BREAKFAST_HINTS = ["breakfast", "brunch", "bakery", "coffee", "cafe", "아침"];
+const LUNCH_HINTS = ["lunch", "bistro", "deli", "sandwich", "noodle", "ramen", "점심"];
+const DINNER_HINTS = [
+  "dinner",
+  "supper",
+  "bbq",
+  "grill",
+  "steak",
+  "izakaya",
+  "bar",
+  "wine",
+  "fine dining",
+  "저녁",
+];
+
+const countHints = (text: string, hints: string[]) =>
+  hints.reduce((acc, hint) => acc + (text.includes(hint) ? 1 : 0), 0);
+
+const inferMealType = (place: Place): MealType => {
+  if (place.activityType !== "meal") return "meal";
+  const text = `${place.placeName} ${place.description}`.toLowerCase();
+  const breakfastScore = countHints(text, BREAKFAST_HINTS);
+  const lunchScore = countHints(text, LUNCH_HINTS);
+  const dinnerScore = countHints(text, DINNER_HINTS);
+
+  if (breakfastScore === 0 && lunchScore === 0 && dinnerScore === 0) return "meal";
+  if (dinnerScore >= lunchScore && dinnerScore >= breakfastScore) return "dinner";
+  if (lunchScore >= breakfastScore) return "lunch";
+  if (breakfastScore > 0) return "breakfast";
+  return "meal";
+};
+
+const temporalPenalty = (route: Place[]) => {
+  const n = route.length;
+  if (n === 0) return 0;
+
+  const mealIndices = route
+    .map((place, idx) => ({ place, idx }))
+    .filter(({ place }) => place.activityType === "meal");
+
+  let penalty = 0;
+  let prevMeal = false;
+
+  for (let i = 0; i < n; i++) {
+    const place = route[i];
+    const isMeal = place.activityType === "meal";
+
+    if (isMeal && prevMeal) penalty += 10;
+    prevMeal = isMeal;
+    if (!isMeal) continue;
+
+    const mealType = inferMealType(place);
+    const earlyThreshold = Math.max(1, Math.floor(n * 0.22));
+    const lunchStart = Math.floor(n * 0.28);
+    const lunchEnd = Math.ceil(n * 0.72);
+    const dinnerStart = Math.max(2, Math.floor(n * 0.6));
+    const mealOrder = mealIndices.findIndex((item) => item.idx === i);
+    const mealCount = mealIndices.length;
+    const genericExpected = Math.round(((mealOrder + 1) * (n - 1)) / (mealCount + 1));
+
+    if (mealType === "dinner") {
+      if (i < dinnerStart) penalty += (dinnerStart - i) * 22;
+      if (i <= 1) penalty += 45;
+    } else if (mealType === "lunch") {
+      if (i < lunchStart) penalty += (lunchStart - i) * 14;
+      if (i > lunchEnd) penalty += (i - lunchEnd) * 10;
+    } else if (mealType === "breakfast") {
+      if (i > earlyThreshold) penalty += (i - earlyThreshold) * 12;
+    } else {
+      penalty += Math.abs(i - genericExpected) * 8;
+      if (mealCount >= 2 && mealOrder === mealCount - 1 && i < dinnerStart) {
+        penalty += (dinnerStart - i) * 12;
+      }
+      if (i <= 1) penalty += 10;
+    }
+  }
+
+  return penalty;
+};
+
+const routeScore = (route: Place[]) => routeDistance(route) + temporalPenalty(route);
+
+const moveItem = (arr: Place[], from: number, to: number) => {
+  const next = [...arr];
+  const [item] = next.splice(from, 1);
+  next.splice(to, 0, item);
+  return next;
+};
+
+const improveTemporalOrder = (route: Place[]) => {
+  if (route.length <= 2) return route;
+  let best = [...route];
+  let bestScore = routeScore(best);
+
+  let improved = true;
+  let guard = 0;
+  while (improved && guard < 8) {
+    guard += 1;
+    improved = false;
+    for (let i = 0; i < best.length; i++) {
+      if (best[i].activityType !== "meal") continue;
+
+      for (let j = 0; j < best.length; j++) {
+        if (i === j) continue;
+        const candidate = moveItem(best, i, j);
+        const score = routeScore(candidate);
+        if (score + 0.01 < bestScore) {
+          best = candidate;
+          bestScore = score;
+          improved = true;
+        }
+      }
+    }
+  }
+
+  return best;
+};
+
 const optimizeRoute = (places: Place[]): Place[] => {
   if (places.length <= 2) {
     return places.map((p, i) => ({ ...p, order: i }));
@@ -136,7 +256,9 @@ const optimizeRoute = (places: Place[]): Place[] => {
     }
   }
 
-  return [...bestPath, ...withoutLocation].map((place, index) => ({
+  const temporallyImproved = improveTemporalOrder(bestPath);
+
+  return [...temporallyImproved, ...withoutLocation].map((place, index) => ({
     ...place,
     order: index,
   }));
@@ -157,7 +279,6 @@ const PlanPage = () => {
   const [month, setMonth] = useState("5");
 
   const [loading, setLoading] = useState(false);
-  const [loadingProgress, setLoadingProgress] = useState(5);
   const [loadingPhase, setLoadingPhase] = useState(0);
 
   const [plan, setPlan] = useState<TravelPlan | null>(null);
@@ -175,26 +296,30 @@ const PlanPage = () => {
     ],
     [],
   );
+  const travelTips = useMemo(
+    () => [
+      "Tip: Keep the first stop close to your hotel area to reduce day-one fatigue.",
+      "Tip: Group landmarks by district, then place meals between district moves.",
+      "Tip: If weather changes, swap indoor spots into the same time slot.",
+      "Tip: Leave 15–20 minutes buffer between nearby stops.",
+      "Tip: Save your plan once route quality looks right, then share it.",
+    ],
+    [],
+  );
 
   useEffect(() => {
     if (!loading) return;
 
-    setLoadingProgress(8);
     setLoadingPhase(0);
 
-    const progressTimer = setInterval(() => {
-      setLoadingProgress((prev) => (prev >= 92 ? prev : prev + Math.random() * 10));
-    }, 700);
-
     const phaseTimer = setInterval(() => {
-      setLoadingPhase((prev) => (prev + 1) % 3);
-    }, 1500);
+      setLoadingPhase((prev) => (prev + 1) % loadingHints.length);
+    }, 4200);
 
     return () => {
-      clearInterval(progressTimer);
       clearInterval(phaseTimer);
     };
-  }, [loading]);
+  }, [loading, loadingHints.length]);
 
   useEffect(() => {
     if (!user) {
@@ -238,8 +363,6 @@ const PlanPage = () => {
           userRatingCount: details.userRatingCount,
           googlePlaceId: details.googlePlaceId,
           address: details.address,
-          businessStatus: details.businessStatus,
-          openNow: typeof details.openNow === "boolean" ? details.openNow : undefined,
         };
       });
 
@@ -275,7 +398,6 @@ const PlanPage = () => {
       setActiveDayNumber(enrichedPlan.days[0]?.dayNumber ?? 1);
       setSelectedPlace(null);
       setMobileView("itinerary");
-      setLoadingProgress(100);
     } catch (error) {
       console.error(error);
       alert("Failed to generate plan.");
@@ -556,15 +678,21 @@ const PlanPage = () => {
               <h2 className="text-base font-semibold">Building your plan</h2>
             </div>
             <p className="mt-3 text-sm text-slate-600">{loadingHints[loadingPhase]}</p>
-            <div className="mt-4 h-2 w-full overflow-hidden rounded-full bg-slate-100">
-              <div
-                className="h-full rounded-full bg-gradient-to-r from-cyan-400 to-sky-500 transition-all duration-500"
-                style={{ width: `${Math.min(100, Math.round(loadingProgress))}%` }}
-              />
+            <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Travel tips while you wait
+              </p>
+              <ul className="mt-2 space-y-2 text-sm text-slate-600">
+                {[0, 1, 2].map((offset) => {
+                  const tip = travelTips[(loadingPhase + offset) % travelTips.length];
+                  return (
+                    <li key={`${loadingPhase}-${offset}`} className="rounded-lg bg-white px-3 py-2">
+                      {tip}
+                    </li>
+                  );
+                })}
+              </ul>
             </div>
-            <p className="mt-1.5 text-right text-xs text-slate-500">
-              {Math.round(loadingProgress)}%
-            </p>
           </section>
         ) : null}
 

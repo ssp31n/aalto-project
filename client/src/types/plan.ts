@@ -15,8 +15,6 @@ export interface Place {
   rating?: number;
   userRatingCount?: number;
   address?: string;
-  businessStatus?: string;
-  openNow?: boolean;
 }
 
 export interface DayPlan {
@@ -103,11 +101,6 @@ export const normalizeTravelPlan = (input: unknown): TravelPlan => {
               ? placeObj.userRatingCount
               : undefined,
           address: typeof placeObj.address === "string" ? placeObj.address : undefined,
-          businessStatus:
-            typeof placeObj.businessStatus === "string"
-              ? placeObj.businessStatus
-              : undefined,
-          openNow: typeof placeObj.openNow === "boolean" ? placeObj.openNow : undefined,
         };
         if (place.placeName.length > 0) acc.push(place);
         return acc;
