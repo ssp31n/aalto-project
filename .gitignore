@@ -4,3 +4,7 @@ tree.txt
 
 *.env
 service-account-key.json
+
+Dockerfile
+.dockerignore
+tree*.txt
