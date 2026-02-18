@@ -716,10 +716,14 @@ const PlanPage = () => {
                           <h4
                             className={`truncate text-sm font-bold ${isSelected ? "text-slate-900" : "text-slate-700"}`}
                           >
-                            {place.approxTime ? `${place.approxTime} · ` : ""}
                             {place.placeName}
                           </h4>
                         </div>
+                        {place.approxTime && (
+                          <p className="mt-0.5 inline-flex w-fit items-center rounded-md bg-[#FFF4EA] px-2 py-0.5 text-[11px] font-semibold text-[#FF9A44]">
+                            {place.approxTime}
+                          </p>
+                        )}
                         {!!place.hashtags?.length && (
                           <p className="mt-0.5 truncate text-[11px] font-semibold text-[#FC6076]">
                             {place.hashtags.slice(0, 2).join(" ")}

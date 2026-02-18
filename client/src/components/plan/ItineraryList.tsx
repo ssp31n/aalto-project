@@ -128,9 +128,13 @@ export const ItineraryList = ({
                       </div>
 
                       <h3 className="mt-1 font-bold text-slate-900 truncate">
-                        {place.approxTime ? `${place.approxTime} · ` : ""}
                         {place.placeName}
                       </h3>
+                      {place.approxTime && (
+                        <p className="mt-1 inline-flex w-fit items-center rounded-md bg-[#FFF4EA] px-2 py-0.5 text-[11px] font-semibold text-[#FF9A44]">
+                          {place.approxTime}
+                        </p>
+                      )}
                       {!!place.hashtags?.length && (
                         <p className="mt-1 truncate text-[11px] font-semibold text-[#FC6076]">
                           {place.hashtags.slice(0, 3).join(" ")}

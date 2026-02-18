@@ -307,7 +307,6 @@ export const MapContainer = ({
                     <div className="p-3">
                       <div className="flex items-start justify-between gap-2">
                         <h3 className="text-sm font-bold leading-snug text-slate-900">
-                          {activePlace.approxTime ? `${activePlace.approxTime} · ` : ""}
                           {activePlace.placeName}
                         </h3>
                         {activePlace.rating && (
@@ -317,6 +316,11 @@ export const MapContainer = ({
                           </div>
                         )}
                       </div>
+                      {activePlace.approxTime && (
+                        <p className="mt-1 inline-flex w-fit items-center rounded-md bg-[#FFF4EA] px-2 py-0.5 text-[11px] font-semibold text-[#FF9A44]">
+                          {activePlace.approxTime}
+                        </p>
+                      )}
                       {!!activePlace.hashtags?.length && (
                         <p className="mt-1 line-clamp-1 text-[11px] font-semibold text-[#FC6076]">
                           {activePlace.hashtags.slice(0, 3).join(" ")}
