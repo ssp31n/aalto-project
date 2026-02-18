@@ -20,13 +20,13 @@ const createPinDataUri = (index: number, color: string) => {
 
 const RoutePolyline = ({ path }: { path: { lat: number; lng: number }[] }) => {
   const map = useMap();
-  const polylineRef = useRef<unknown>(null);
+  const polylineRef = useRef<any>(null);
 
   useEffect(() => {
     if (!map || !window.google) return;
 
     if (polylineRef.current) {
-      (polylineRef.current as { setMap: (m: unknown) => void }).setMap(null);
+      polylineRef.current.setMap(null);
     }
 
     const lineSymbol = {
@@ -48,7 +48,9 @@ const RoutePolyline = ({ path }: { path: { lat: number; lng: number }[] }) => {
     });
 
     return () => {
-    if (polylineRef.current) (polylineRef.current as { setMap: (m: unknown) => void }).setMap(null);
+      if (polylineRef.current) {
+        polylineRef.current.setMap(null);
+      }
     };
   }, [map, path]);
 
@@ -69,8 +71,7 @@ const MapViewport = ({
   useEffect(() => {
     if (!map || !window.google) return;
 
-    const day =
-      plan.days.find((item) => item.dayNumber === activeDayNumber) ?? plan.days[0];
+    const day = plan.days.find((item) => item.dayNumber === activeDayNumber) ?? plan.days[0];
     if (!day) return;
 
     const dayPoints = day.places.filter((p) => p.location);
@@ -134,6 +135,7 @@ export const MapContainer = ({
                 activeDayNumber={activeDay.dayNumber}
                 selectedPlaceName={selectedPlaceName}
               />
+
               {path.length > 1 && <RoutePolyline path={path} />}
 
               {activeDay.places.map((place, idx) =>

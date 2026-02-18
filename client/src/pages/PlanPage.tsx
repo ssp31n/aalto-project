@@ -1,11 +1,26 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { ItineraryList } from "../components/plan/ItineraryList";
-import { GlobeIcon, ListIcon, LoginIcon, LogoutIcon, MapIcon, ProgressIcon, SaveIcon, ShareIcon, SparkIcon } from "../components/ui/icons";
+import {
+  TrashIcon,
+  ListIcon,
+  LoginIcon,
+  LogoutIcon,
+  MapIcon,
+  ProgressIcon,
+  SaveIcon,
+  ShareIcon,
+  SparkIcon,
+} from "../components/ui/icons";
 import { useAuth } from "../contexts/AuthContext";
-import { detectLocale, setLocale, t, type Locale } from "../i18n";
 import { generatePlan, getPlaceDetailsBatch } from "../services/api";
-import { getPlan, savePlan } from "../services/planService";
+import {
+  deletePlan,
+  getPlan,
+  listUserPlans,
+  savePlan,
+  type UserPlanSummary,
+} from "../services/planService";
 import type { Place, TravelPlan } from "../types/plan";
 import { MapContainer } from "../components/map/MapContainer";
 
@@ -28,60 +43,100 @@ const getDistance = (
   return r * c;
 };
 
-const optimizeRoute = (places: Place[]): Place[] => {
-  if (places.length <= 2) {
-    return places.map((place, index) => ({ ...place, order: index }));
+const routeDistance = (places: Place[]) => {
+  let sum = 0;
+  for (let i = 0; i < places.length - 1; i++) {
+    const a = places[i].location;
+    const b = places[i + 1].location;
+    if (!a || !b) continue;
+    sum += getDistance(a.lat, a.lng, b.lat, b.lng);
   }
+  return sum;
+};
 
-  const withLocation = places.filter((place) => place.location);
-  const withoutLocation = places.filter((place) => !place.location);
+const nearestNeighbor = (places: Place[]): Place[] => {
+  const arr = [...places];
+  const path: Place[] = [arr.shift()!];
 
-  if (!withLocation.length) {
-    return places.map((place, index) => ({ ...place, order: index }));
-  }
+  while (arr.length) {
+    const current = path[path.length - 1];
+    let bestIdx = 0;
+    let bestDist = Infinity;
 
-  const mealPlaces = withLocation.filter((place) => place.activityType === "meal");
-  const nonMealPlaces = withLocation.filter((place) => place.activityType !== "meal");
-
-  const ordered: Place[] = [];
-  const remaining = [...nonMealPlaces];
-
-  if (remaining.length) {
-    ordered.push(remaining.shift()!);
-  }
-
-  while (remaining.length) {
-    const current = ordered[ordered.length - 1];
-    let nextIndex = 0;
-    let min = Infinity;
-
-    for (let i = 0; i < remaining.length; i++) {
-      const target = remaining[i];
-      const distance = getDistance(
+    for (let i = 0; i < arr.length; i++) {
+      const d = getDistance(
         current.location!.lat,
         current.location!.lng,
-        target.location!.lat,
-        target.location!.lng,
+        arr[i].location!.lat,
+        arr[i].location!.lng,
       );
-      if (distance < min) {
-        min = distance;
-        nextIndex = i;
+      if (d < bestDist) {
+        bestDist = d;
+        bestIdx = i;
       }
     }
 
-    ordered.push(remaining[nextIndex]);
-    remaining.splice(nextIndex, 1);
+    path.push(arr[bestIdx]);
+    arr.splice(bestIdx, 1);
   }
 
-  if (mealPlaces.length > 0) {
-    const insertIndexes = [Math.floor(ordered.length * 0.35), Math.floor(ordered.length * 0.75)];
-    mealPlaces.forEach((meal, idx) => {
-      const insertAt = Math.min(insertIndexes[idx] ?? ordered.length - 1, ordered.length);
-      ordered.splice(Math.max(1, insertAt), 0, meal);
-    });
+  return path;
+};
+
+const twoOpt = (input: Place[]): Place[] => {
+  if (input.length < 4) return input;
+
+  let best = [...input];
+  let improved = true;
+
+  while (improved) {
+    improved = false;
+    for (let i = 1; i < best.length - 2; i++) {
+      for (let k = i + 1; k < best.length - 1; k++) {
+        const candidate = [
+          ...best.slice(0, i),
+          ...best.slice(i, k + 1).reverse(),
+          ...best.slice(k + 1),
+        ];
+
+        if (routeDistance(candidate) + 0.001 < routeDistance(best)) {
+          best = candidate;
+          improved = true;
+        }
+      }
+    }
   }
 
-  return [...ordered, ...withoutLocation].map((place, index) => ({
+  return best;
+};
+
+const optimizeRoute = (places: Place[]): Place[] => {
+  if (places.length <= 2) {
+    return places.map((p, i) => ({ ...p, order: i }));
+  }
+
+  const withLocation = places.filter((p) => p.location);
+  const withoutLocation = places.filter((p) => !p.location);
+
+  if (withLocation.length <= 2) {
+    return [...withLocation, ...withoutLocation].map((p, i) => ({ ...p, order: i }));
+  }
+
+  let bestPath: Place[] = withLocation;
+  let bestCost = Infinity;
+
+  for (let start = 0; start < withLocation.length; start++) {
+    const rotated = [...withLocation.slice(start), ...withLocation.slice(0, start)];
+    const nn = nearestNeighbor(rotated);
+    const improved = twoOpt(nn);
+    const cost = routeDistance(improved);
+    if (cost < bestCost) {
+      bestCost = cost;
+      bestPath = improved;
+    }
+  }
+
+  return [...bestPath, ...withoutLocation].map((place, index) => ({
     ...place,
     order: index,
   }));
@@ -92,7 +147,6 @@ const PlanPage = () => {
   const { planId } = useParams();
   const navigate = useNavigate();
 
-  const [locale, setLocaleState] = useState<Locale>(() => detectLocale());
   const [mobileView, setMobileView] = useState<"itinerary" | "map">("itinerary");
 
   const [destination, setDestination] = useState("");
@@ -107,13 +161,19 @@ const PlanPage = () => {
   const [loadingPhase, setLoadingPhase] = useState(0);
 
   const [plan, setPlan] = useState<TravelPlan | null>(null);
+  const [userPlans, setUserPlans] = useState<UserPlanSummary[]>([]);
+
   const [saving, setSaving] = useState(false);
   const [selectedPlace, setSelectedPlace] = useState<string | null>(null);
   const [activeDayNumber, setActiveDayNumber] = useState(1);
 
   const loadingHints = useMemo(
-    () => [t(locale, "loadingHint1"), t(locale, "loadingHint2"), t(locale, "loadingHint3")],
-    [locale],
+    () => [
+      "Collecting day-by-day places",
+      "Validating real map locations",
+      "Optimizing route order",
+    ],
+    [],
   );
 
   useEffect(() => {
@@ -123,12 +183,12 @@ const PlanPage = () => {
     setLoadingPhase(0);
 
     const progressTimer = setInterval(() => {
-      setLoadingProgress((prev) => (prev >= 92 ? prev : prev + Math.random() * 11));
+      setLoadingProgress((prev) => (prev >= 92 ? prev : prev + Math.random() * 10));
     }, 700);
 
     const phaseTimer = setInterval(() => {
       setLoadingPhase((prev) => (prev + 1) % 3);
-    }, 1600);
+    }, 1500);
 
     return () => {
       clearInterval(progressTimer);
@@ -136,15 +196,24 @@ const PlanPage = () => {
     };
   }, [loading]);
 
+  useEffect(() => {
+    if (!user) {
+      setUserPlans([]);
+      return;
+    }
+
+    listUserPlans(user.uid)
+      .then(setUserPlans)
+      .catch((error) => console.error("Failed to list user plans", error));
+  }, [user]);
+
   const enrichAndOptimizePlan = async (basePlan: TravelPlan, city: string) => {
     const nextPlan = { ...basePlan, days: [...basePlan.days] };
 
     const unresolved = Array.from(
       new Set(
         nextPlan.days.flatMap((day) =>
-          day.places
-            .filter((place) => !place.location)
-            .map((place) => place.placeName),
+          day.places.filter((place) => !place.location).map((place) => place.placeName),
         ),
       ),
     );
@@ -183,7 +252,7 @@ const PlanPage = () => {
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!destination.trim()) {
-      alert(t(locale, "chooseDestination"));
+      alert("Please enter a destination.");
       return;
     }
 
@@ -209,9 +278,9 @@ const PlanPage = () => {
       setLoadingProgress(100);
     } catch (error) {
       console.error(error);
-      alert(t(locale, "createFail"));
+      alert("Failed to generate plan.");
     } finally {
-      setTimeout(() => setLoading(false), 250);
+      setTimeout(() => setLoading(false), 220);
     }
   };
 
@@ -229,7 +298,7 @@ const PlanPage = () => {
         setActiveDayNumber(enriched.days[0]?.dayNumber ?? 1);
       } catch (error) {
         console.error(error);
-        alert(t(locale, "loadFail"));
+        alert("Unable to load this plan.");
         navigate("/plan");
       } finally {
         setLoading(false);
@@ -237,17 +306,12 @@ const PlanPage = () => {
     };
 
     fetchPlan();
-  }, [planId, navigate, locale]);
-
-  const changeLocale = (next: Locale) => {
-    setLocale(next);
-    setLocaleState(next);
-  };
+  }, [planId, navigate]);
 
   const handleShare = async () => {
     try {
       await navigator.clipboard.writeText(window.location.href);
-      alert(t(locale, "shareSuccess"));
+      alert("Share link copied.");
     } catch (error) {
       console.error(error);
     }
@@ -259,11 +323,13 @@ const PlanPage = () => {
     setSaving(true);
     try {
       const id = await savePlan({ ...plan, destination }, user.uid);
-      alert(t(locale, "saveSuccess"));
+      const list = await listUserPlans(user.uid);
+      setUserPlans(list);
+      alert("Plan saved.");
       navigate(`/plan/${id}`);
     } catch (error) {
       console.error(error);
-      alert(t(locale, "saveFail"));
+      alert("Failed to save plan.");
     } finally {
       setSaving(false);
     }
@@ -272,68 +338,81 @@ const PlanPage = () => {
   const activeDayForMap = plan?.days.find((d) => d.dayNumber === activeDayNumber)
     ? activeDayNumber
     : (plan?.days[0]?.dayNumber ?? 1);
+  const isOwnedCurrentPlan =
+    Boolean(user && planId) && userPlans.some((item) => item.id === planId);
+
+  const handleDeletePlan = async (targetPlanId: string) => {
+    if (!user) return;
+    const ok = window.confirm("Delete this plan? This action cannot be undone.");
+    if (!ok) return;
+
+    try {
+      await deletePlan(targetPlanId);
+      const refreshed = await listUserPlans(user.uid);
+      setUserPlans(refreshed);
+
+      if (planId === targetPlanId) {
+        setPlan(null);
+        setSelectedPlace(null);
+        navigate("/plan", { replace: true });
+      }
+    } catch (error) {
+      console.error(error);
+      alert("Failed to delete plan.");
+    }
+  };
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top,_#f0f9ff_0%,_#f8fafc_45%,_#eef2ff_100%)]">
-      <header className="sticky top-0 z-30 border-b border-slate-200/80 bg-white/80 backdrop-blur-md">
-        <div className="mx-auto flex h-16 max-w-[1440px] items-center justify-between px-4 md:px-6">
+    <div className="min-h-screen bg-[#f5f7fb]">
+      <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur">
+        <div className="mx-auto flex h-14 max-w-[1400px] items-center justify-between px-4 md:px-6">
           <button
             type="button"
             onClick={() => navigate("/plan")}
             className="inline-flex items-center gap-2 text-slate-900"
           >
-            <SparkIcon className="h-5 w-5 text-sky-500" />
-            <span className="text-lg font-semibold">{t(locale, "brand")}</span>
+            <SparkIcon className="h-4 w-4 text-sky-500" />
+            <span className="text-base font-semibold">TripFlow</span>
           </button>
 
-          <div className="flex items-center gap-2 md:gap-3">
-            <label className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-600">
-              <GlobeIcon className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">{t(locale, "language")}</span>
-              <select
-                value={locale}
-                onChange={(e) => changeLocale(e.target.value as Locale)}
-                className="bg-transparent text-xs text-slate-700 outline-none"
-              >
-                <option value="ko">한국어</option>
-                <option value="en">English</option>
-                <option value="fi">Suomi</option>
-              </select>
-            </label>
-
-            {user ? (
-              <button
-                type="button"
-                onClick={() => logout()}
-                className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:border-slate-300"
-              >
-                <LogoutIcon className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">{t(locale, "logout")}</span>
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => navigate("/login")}
-                className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:border-slate-300"
-              >
-                <LoginIcon className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">{t(locale, "login")}</span>
-              </button>
-            )}
-          </div>
+          {user ? (
+            <button
+              type="button"
+              onClick={() => logout()}
+              className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700"
+            >
+              <LogoutIcon className="h-3.5 w-3.5" />
+              Logout
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => navigate("/login")}
+              className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700"
+            >
+              <LoginIcon className="h-3.5 w-3.5" />
+              Login
+            </button>
+          )}
         </div>
       </header>
 
-      <main className="mx-auto max-w-[1440px] p-4 md:p-6">
+      <main className="mx-auto max-w-[1400px] p-3 md:p-5">
         {!plan && !loading ? (
-          <section className="grid gap-6 lg:grid-cols-[430px_1fr]">
-            <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm md:p-6">
-              <h1 className="text-2xl font-semibold text-slate-900">{t(locale, "startTrip")}</h1>
-              <p className="mt-2 text-sm text-slate-600">{t(locale, "subtitle")}</p>
+          <section className="grid gap-4 lg:grid-cols-[430px_1fr]">
+            <div className="space-y-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm md:p-5">
+              <div>
+                <h1 className="text-xl font-semibold text-slate-900">Plan your trip</h1>
+                <p className="mt-1 text-sm text-slate-600">
+                  Fast planning with route-aware daily itinerary.
+                </p>
+              </div>
 
-              <form onSubmit={handleSearch} className="mt-6 space-y-4">
+              <form onSubmit={handleSearch} className="space-y-3">
                 <div>
-                  <label className="mb-1 block text-sm font-medium text-slate-700">{t(locale, "destination")}</label>
+                  <label className="mb-1 block text-sm font-medium text-slate-700">
+                    Destination
+                  </label>
                   <input
                     value={destination}
                     onChange={(e) => setDestination(e.target.value)}
@@ -342,9 +421,11 @@ const PlanPage = () => {
                   />
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-2 gap-2.5">
                   <div>
-                    <label className="mb-1 block text-sm font-medium text-slate-700">{t(locale, "days")}</label>
+                    <label className="mb-1 block text-sm font-medium text-slate-700">
+                      Days
+                    </label>
                     <input
                       type="number"
                       min={1}
@@ -355,7 +436,9 @@ const PlanPage = () => {
                     />
                   </div>
                   <div>
-                    <label className="mb-1 block text-sm font-medium text-slate-700">{t(locale, "month")}</label>
+                    <label className="mb-1 block text-sm font-medium text-slate-700">
+                      Month
+                    </label>
                     <select
                       value={month}
                       onChange={(e) => setMonth(e.target.value)}
@@ -370,9 +453,11 @@ const PlanPage = () => {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-2 gap-2.5">
                   <div>
-                    <label className="mb-1 block text-sm font-medium text-slate-700">{t(locale, "companions")}</label>
+                    <label className="mb-1 block text-sm font-medium text-slate-700">
+                      Companions
+                    </label>
                     <select
                       value={companions}
                       onChange={(e) => setCompanions(e.target.value)}
@@ -385,7 +470,9 @@ const PlanPage = () => {
                     </select>
                   </div>
                   <div>
-                    <label className="mb-1 block text-sm font-medium text-slate-700">{t(locale, "transport")}</label>
+                    <label className="mb-1 block text-sm font-medium text-slate-700">
+                      Transport
+                    </label>
                     <select
                       value={transportation}
                       onChange={(e) => setTransportation(e.target.value)}
@@ -398,7 +485,7 @@ const PlanPage = () => {
                 </div>
 
                 <div>
-                  <label className="mb-1 block text-sm font-medium text-slate-700">{t(locale, "style")}</label>
+                  <label className="mb-1 block text-sm font-medium text-slate-700">Style</label>
                   <select
                     value={style}
                     onChange={(e) => setStyle(e.target.value)}
@@ -413,69 +500,101 @@ const PlanPage = () => {
                 <button
                   type="submit"
                   disabled={loading}
-                  className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-700"
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white"
                 >
                   <SparkIcon className="h-4 w-4" />
-                  {t(locale, "generate")}
+                  Generate plan
                 </button>
               </form>
             </div>
 
-            <div className="hidden overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm lg:block">
-              <MapContainer
-                plan={null}
-                activeDayNumber={1}
-                selectedPlaceName={null}
-                emptyKeyMessage={t(locale, "loadingMapKey")}
-              />
+            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm md:p-5">
+              <h2 className="text-sm font-semibold text-slate-900">My plans</h2>
+              <div className="mt-3 grid gap-2">
+                {userPlans.length === 0 ? (
+                  <p className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-xs text-slate-500">
+                    No saved plans yet.
+                  </p>
+                ) : (
+                  userPlans.map((item) => (
+                    <div
+                      key={item.id}
+                      className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-3 transition hover:border-slate-300 hover:bg-slate-50"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => navigate(`/plan/${item.id}`)}
+                        className="min-w-0 flex-1 text-left"
+                      >
+                        <p className="truncate text-sm font-medium text-slate-900">
+                          {item.title}
+                        </p>
+                        <p className="mt-1 text-xs text-slate-500">
+                          {item.destination || "Unknown destination"} · {item.daysCount} days
+                        </p>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeletePlan(item.id)}
+                        className="rounded-lg border border-slate-200 bg-white p-2 text-slate-500 transition hover:border-red-300 hover:text-red-600"
+                        aria-label="Delete plan"
+                      >
+                        <TrashIcon className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
             </div>
           </section>
         ) : null}
 
         {loading ? (
-          <section className="mx-auto mt-8 max-w-xl rounded-3xl border border-slate-200 bg-white p-8 shadow-sm">
-            <div className="flex items-center gap-3 text-slate-900">
-              <ProgressIcon className="h-5 w-5 animate-spin text-sky-500" />
-              <h2 className="text-lg font-semibold">{t(locale, "loadingTitle")}</h2>
+          <section className="mx-auto mt-6 max-w-xl rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+            <div className="flex items-center gap-2 text-slate-900">
+              <ProgressIcon className="h-4 w-4 animate-spin text-sky-500" />
+              <h2 className="text-base font-semibold">Building your plan</h2>
             </div>
-            <p className="mt-4 text-sm text-slate-600">{loadingHints[loadingPhase]}</p>
-            <div className="mt-5 h-2 w-full overflow-hidden rounded-full bg-slate-100">
+            <p className="mt-3 text-sm text-slate-600">{loadingHints[loadingPhase]}</p>
+            <div className="mt-4 h-2 w-full overflow-hidden rounded-full bg-slate-100">
               <div
                 className="h-full rounded-full bg-gradient-to-r from-cyan-400 to-sky-500 transition-all duration-500"
                 style={{ width: `${Math.min(100, Math.round(loadingProgress))}%` }}
               />
             </div>
-            <p className="mt-2 text-right text-xs text-slate-500">{Math.round(loadingProgress)}%</p>
+            <p className="mt-1.5 text-right text-xs text-slate-500">
+              {Math.round(loadingProgress)}%
+            </p>
           </section>
         ) : null}
 
         {plan && !loading ? (
-          <section className="grid h-[calc(100vh-140px)] grid-rows-[auto_1fr] gap-3 md:h-[calc(100vh-130px)] md:gap-4 lg:grid-cols-[420px_1fr] lg:grid-rows-1">
-            <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+          <section className="grid h-[calc(100vh-120px)] grid-rows-[auto_1fr] gap-3 md:h-[calc(100vh-110px)] lg:grid-cols-[420px_1fr] lg:grid-rows-1">
+            <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white p-2.5 shadow-sm">
               <div className="inline-flex rounded-xl border border-slate-200 bg-slate-50 p-1 md:hidden">
                 <button
                   type="button"
                   onClick={() => setMobileView("itinerary")}
-                  className={`inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-medium ${
+                  className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium ${
                     mobileView === "itinerary" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"
                   }`}
                 >
                   <ListIcon className="h-3.5 w-3.5" />
-                  {t(locale, "viewItinerary")}
+                  Itinerary
                 </button>
                 <button
                   type="button"
                   onClick={() => setMobileView("map")}
-                  className={`inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-medium ${
+                  className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium ${
                     mobileView === "map" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"
                   }`}
                 >
                   <MapIcon className="h-3.5 w-3.5" />
-                  {t(locale, "viewMap")}
+                  Map
                 </button>
               </div>
 
-              <div className="ml-auto flex items-center gap-2">
+              <div className="ml-auto flex items-center gap-1.5">
                 <button
                   type="button"
                   onClick={() => {
@@ -485,18 +604,30 @@ const PlanPage = () => {
                   }}
                   className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700"
                 >
-                  {t(locale, "newPlan")}
+                  New
                 </button>
 
                 {planId ? (
-                  <button
-                    type="button"
-                    onClick={handleShare}
-                    className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700"
-                  >
-                    <ShareIcon className="h-3.5 w-3.5" />
-                    {t(locale, "share")}
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      onClick={handleShare}
+                      className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700"
+                    >
+                      <ShareIcon className="h-3.5 w-3.5" />
+                      Share
+                    </button>
+                    {isOwnedCurrentPlan ? (
+                      <button
+                        type="button"
+                        onClick={() => handleDeletePlan(planId)}
+                        className="inline-flex items-center gap-1 rounded-lg border border-red-200 bg-white px-3 py-2 text-xs font-medium text-red-600"
+                      >
+                        <TrashIcon className="h-3.5 w-3.5" />
+                        Delete
+                      </button>
+                    ) : null}
+                  </>
                 ) : null}
 
                 {!planId && user ? (
@@ -507,22 +638,18 @@ const PlanPage = () => {
                     className="inline-flex items-center gap-1 rounded-lg bg-slate-900 px-3 py-2 text-xs font-medium text-white"
                   >
                     <SaveIcon className="h-3.5 w-3.5" />
-                    {saving ? "..." : t(locale, "save")}
+                    {saving ? "Saving" : "Save"}
                   </button>
                 ) : null}
               </div>
             </div>
 
-            <div className="grid min-h-0 flex-1 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm lg:grid-cols-[420px_1fr]">
-              <div className={`${mobileView === "map" ? "hidden md:block" : "block"} min-h-0 border-r border-slate-200`}>
+            <div className="grid min-h-0 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm lg:grid-cols-[420px_1fr]">
+              <div
+                className={`${mobileView === "map" ? "hidden md:block" : "block"} min-h-0 border-r border-slate-200`}
+              >
                 <ItineraryList
                   plan={plan}
-                  localeDayLabel={t(locale, "day")}
-                  activityLabelMap={{
-                    meal: t(locale, "activityMeal"),
-                    sightseeing: t(locale, "activitySightseeing"),
-                    activity: t(locale, "activityExperience"),
-                  }}
                   activeDayNumber={activeDayNumber}
                   onDaySelect={(dayNumber) => {
                     setActiveDayNumber(dayNumber);
@@ -541,7 +668,7 @@ const PlanPage = () => {
                   plan={plan}
                   activeDayNumber={activeDayForMap}
                   selectedPlaceName={selectedPlace}
-                  emptyKeyMessage={t(locale, "loadingMapKey")}
+                  emptyKeyMessage="Google Maps API key is missing."
                 />
               </div>
             </div>

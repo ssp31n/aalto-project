@@ -3,12 +3,16 @@ import { MapIcon } from "../ui/icons";
 
 interface ItineraryListProps {
   plan: TravelPlan;
-  localeDayLabel: string;
-  activityLabelMap: Record<Place["activityType"], string>;
   activeDayNumber: number;
   onDaySelect: (dayNumber: number) => void;
   onPlaceClick: (dayNumber: number, placeName: string) => void;
 }
+
+const activityLabelMap: Record<Place["activityType"], string> = {
+  meal: "Meal",
+  sightseeing: "Spot",
+  activity: "Activity",
+};
 
 const StarRating = ({ rating }: { rating?: number }) => {
   if (!rating) return null;
@@ -16,7 +20,12 @@ const StarRating = ({ rating }: { rating?: number }) => {
   return (
     <div className="flex items-center gap-1 text-amber-500">
       {Array.from({ length: rounded }).map((_, idx) => (
-        <svg key={idx} viewBox="0 0 20 20" className="h-3.5 w-3.5 fill-current" aria-hidden="true">
+        <svg
+          key={idx}
+          viewBox="0 0 20 20"
+          className="h-3.5 w-3.5 fill-current"
+          aria-hidden="true"
+        >
           <path d="m10 1.8 2.4 4.8 5.3.8-3.8 3.8.9 5.3L10 14.1l-4.8 2.4.9-5.3L2.3 7.4l5.3-.8L10 1.8z" />
         </svg>
       ))}
@@ -25,59 +34,8 @@ const StarRating = ({ rating }: { rating?: number }) => {
   );
 };
 
-const PlaceCard = ({
-  place,
-  index,
-  dayNumber,
-  activityLabelMap,
-  onClick,
-}: {
-  place: Place;
-  index: number;
-  dayNumber: number;
-  activityLabelMap: Record<Place["activityType"], string>;
-  onClick: () => void;
-}) => {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="group relative w-full overflow-hidden rounded-2xl border border-slate-200 bg-white text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
-    >
-      {place.photoUrl ? (
-        <img src={place.photoUrl} alt={place.placeName} className="h-28 w-full object-cover" />
-      ) : (
-        <div className="h-28 w-full bg-gradient-to-r from-sky-100 to-cyan-100" />
-      )}
-
-      <div className="space-y-2 p-4">
-        <div className="flex items-start justify-between gap-2">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-sky-600">
-              {activityLabelMap[place.activityType]}
-            </p>
-            <h3 className="text-sm font-semibold text-slate-900">
-              {index + 1}. {place.placeName}
-            </h3>
-          </div>
-          <StarRating rating={place.rating} />
-        </div>
-        <p className="line-clamp-2 text-xs text-slate-600">{place.description}</p>
-        <div className="flex items-center justify-between text-[11px] text-slate-500">
-          <span>{place.durationMin} min</span>
-          <span>
-            {dayNumber}:{index + 1}
-          </span>
-        </div>
-      </div>
-    </button>
-  );
-};
-
 export const ItineraryList = ({
   plan,
-  localeDayLabel,
-  activityLabelMap,
   activeDayNumber,
   onDaySelect,
   onPlaceClick,
@@ -108,7 +66,7 @@ export const ItineraryList = ({
                 }`}
               >
                 <MapIcon className="h-3.5 w-3.5" />
-                {localeDayLabel} {day.dayNumber}
+                Day {day.dayNumber}
               </button>
             );
           })}
@@ -118,14 +76,45 @@ export const ItineraryList = ({
       <div className="flex-1 overflow-y-auto p-4 md:p-6">
         <div className="grid gap-3">
           {activeDay.places.map((place, index) => (
-            <PlaceCard
+            <button
               key={`${activeDay.dayNumber}-${place.order}-${index}`}
-              place={place}
-              index={index}
-              dayNumber={activeDay.dayNumber}
-              activityLabelMap={activityLabelMap}
+              type="button"
               onClick={() => onPlaceClick(activeDay.dayNumber, place.placeName)}
-            />
+              className="group relative w-full overflow-hidden rounded-2xl border border-slate-200 bg-white text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+            >
+              {place.photoUrl ? (
+                <img
+                  src={place.photoUrl}
+                  alt={place.placeName}
+                  className="h-28 w-full object-cover"
+                />
+              ) : (
+                <div className="h-28 w-full bg-gradient-to-r from-sky-100 to-cyan-100" />
+              )}
+
+              <div className="space-y-2 p-4">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-sky-600">
+                      {activityLabelMap[place.activityType]}
+                    </p>
+                    <h3 className="text-sm font-semibold text-slate-900">
+                      {index + 1}. {place.placeName}
+                    </h3>
+                  </div>
+                  <StarRating rating={place.rating} />
+                </div>
+                <p className="line-clamp-2 text-xs text-slate-600">
+                  {place.description}
+                </p>
+                <div className="flex items-center justify-between text-[11px] text-slate-500">
+                  <span>{place.durationMin} min</span>
+                  <span>
+                    Day {activeDay.dayNumber} · Stop {index + 1}
+                  </span>
+                </div>
+              </div>
+            </button>
           ))}
         </div>
       </div>

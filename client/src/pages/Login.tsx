@@ -1,12 +1,10 @@
 import { useNavigate } from "react-router-dom";
 import { PlaneIcon } from "../components/ui/icons";
 import { useAuth } from "../contexts/AuthContext";
-import { detectLocale, t } from "../i18n";
 
 const Login = () => {
   const { signInWithGoogle } = useAuth();
   const navigate = useNavigate();
-  const locale = detectLocale();
 
   const handleLogin = async () => {
     try {
@@ -19,13 +17,13 @@ const Login = () => {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[radial-gradient(circle_at_top,_#f0f9ff_0%,_#f8fafc_45%,_#eef2ff_100%)] px-4">
+    <div className="flex min-h-screen items-center justify-center bg-[#f5f7fb] px-4">
       <div className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-sm">
         <div className="mx-auto mb-4 inline-flex h-12 w-12 items-center justify-center rounded-full bg-sky-100 text-sky-600">
           <PlaneIcon className="h-6 w-6" />
         </div>
         <h1 className="text-3xl font-semibold text-slate-900">TripFlow</h1>
-        <p className="mt-2 text-sm text-slate-600">{t(locale, "subtitle")}</p>
+        <p className="mt-2 text-sm text-slate-600">Smarter routes for every day of your trip</p>
 
         <button
           type="button"
@@ -37,7 +35,7 @@ const Login = () => {
             alt="Google"
             className="h-5 w-5"
           />
-          {t(locale, "continueWithGoogle")}
+          Continue with Google
         </button>
       </div>
     </div>
