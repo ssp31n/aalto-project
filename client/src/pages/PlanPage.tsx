@@ -272,9 +272,13 @@ const PlanPage = () => {
             onClick={() => navigate("/plan")}
             className="flex cursor-pointer items-center gap-2"
           >
-            <img src="/icon.svg" alt="TripFlow" className="h-8 w-8 rounded-lg shadow-sm" />
+            <img
+              src="/icon.svg"
+              alt="triplo"
+              className="h-8 w-8 rounded-lg shadow-sm"
+            />
             <span className="text-lg font-bold tracking-tight text-slate-900">
-              TripFlow
+              triplo
             </span>
           </div>
 
@@ -330,8 +334,8 @@ const PlanPage = () => {
                   />
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div className="min-w-0">
                     <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-400">
                       Start Date
                     </label>
@@ -346,10 +350,10 @@ const PlanPage = () => {
                           setEndDate("");
                         }
                       }}
-                      className="w-full rounded-xl border-0 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-900 focus:ring-2 focus:ring-[#FC6076]"
+                      className="w-full min-w-0 rounded-xl border-0 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-900 focus:ring-2 focus:ring-[#FC6076]"
                     />
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-400">
                       End Date
                     </label>
@@ -359,7 +363,7 @@ const PlanPage = () => {
                       min={startDate || todayStr}
                       value={endDate}
                       onChange={(e) => setEndDate(e.target.value)}
-                      className="w-full rounded-xl border-0 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-900 focus:ring-2 focus:ring-[#FC6076]"
+                      className="w-full min-w-0 rounded-xl border-0 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-900 focus:ring-2 focus:ring-[#FC6076]"
                     />
                   </div>
                 </div>

@@ -5,6 +5,8 @@ import requests
 import time
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from dotenv import load_dotenv
 
@@ -29,11 +31,36 @@ except Exception as e:
     print(f"Client init failed: {e}")
 
 app = FastAPI()
+cors_origins_env = os.getenv("CORS_ALLOW_ORIGINS", "http://localhost:5173")
+allow_origins = [origin.strip() for origin in cors_origins_env.split(",") if origin.strip()]
+allow_credentials = "*" not in allow_origins
+
+# 1. React 빌드 결과물 경로 설정 (Dockerfile 구조 기준)
+# 나중에 Dockerfile에서 client/dist 폴더를 server/static으로 복사할 예정입니다.
+build_dir = os.path.join(os.path.dirname(__file__), "static")
+
+# 빌드 폴더가 존재할 때만 실행 (로컬 개발 시 에러 방지)
+if os.path.isdir(build_dir):
+    # assets 폴더 (CSS, JS, 이미지 등) 서빙
+    app.mount("/assets", StaticFiles(directory=os.path.join(build_dir, "assets")), name="assets")
+
+    # 2. SPA 라우팅 처리 (새로고침 시 404 방지 -> index.html 반환)
+    @app.get("/{full_path:path}")
+    async def serve_react_app(full_path: str):
+        # API 요청이 아닌 경우 index.html 반환
+        if full_path.startswith("api"):
+            return {"error": "Not Found"}
+            
+        file_path = os.path.join(build_dir, full_path)
+        if os.path.exists(file_path) and os.path.isfile(file_path):
+            return FileResponse(file_path)
+            
+        return FileResponse(os.path.join(build_dir, "index.html"))
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
-    allow_credentials=True,
+    allow_origins=allow_origins,
+    allow_credentials=allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -57,7 +84,7 @@ class PlaceDetailsBatchRequest(BaseModel):
 
 @app.get("/")
 def read_root():
-    return {"message": "TripFlow API is running"}
+    return {"message": "triplo API is running"}
 
 def _extract_json_object(text: str):
     text = (text or "").strip()

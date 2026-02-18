@@ -226,7 +226,7 @@ export const MapContainer = ({
           disableDefaultUI={false}
           gestureHandling="greedy"
           className="h-full w-full"
-          mapId="TRIPFLOW_MAP_V3"
+          mapId="triplo_MAP_V3"
           options={{
             mapTypeControl: false,
             streetViewControl: false,

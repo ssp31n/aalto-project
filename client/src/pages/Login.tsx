@@ -11,16 +11,27 @@ const Login = () => {
       navigate("/plan");
     } catch (error) {
       console.error("Login failed", error);
-      alert("Login failed");
+      const code = (error as { code?: string })?.code;
+      if (code === "auth/unauthorized-domain") {
+        alert("Login failed: this domain is not authorized in Firebase Auth.");
+        return;
+      }
+      alert("Login failed. Please check Firebase Auth domain and environment settings.");
     }
   };
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-[#f5f7fb] px-4">
       <div className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-sm">
-        <img src="/icon.svg" alt="TripFlow" className="mx-auto mb-4 h-12 w-12 rounded-xl" />
-        <h1 className="text-3xl font-semibold text-slate-900">TripFlow</h1>
-        <p className="mt-2 text-sm text-slate-600">Smarter routes for every day of your trip</p>
+        <img
+          src="/icon.svg"
+          alt="triplo"
+          className="mx-auto mb-4 h-12 w-12 rounded-xl"
+        />
+        <h1 className="text-3xl font-semibold text-slate-900">triplo</h1>
+        <p className="mt-2 text-sm text-slate-600">
+          Smarter routes for every day of your trip
+        </p>
 
         <button
           type="button"

@@ -3,6 +3,7 @@ prompt.html
 tree.txt
 
 *.env
+*.env.example
 service-account-key.json
 
 tree*.txt

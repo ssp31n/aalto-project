@@ -1,0 +1,25 @@
+# Keep default behavior aligned with .gitignore
+#!include:.gitignore
+.gcloudignore
+.git
+
+# Local/dev artifacts
+**/.DS_Store
+**/__pycache__/
+**/.pytest_cache/
+**/*.pyc
+**/*.pyo
+**/*.pyd
+**/.venv/
+**/venv/
+
+# Node artifacts
+**/node_modules/
+**/dist/
+
+# Workspace-only files
+doc.html
+prompt.html
+tree*.txt
+deploy_env_arg
+service-account-key.json

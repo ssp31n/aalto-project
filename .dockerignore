@@ -1,0 +1,10 @@
+node_modules
+client/node_modules
+server/node_modules
+venv
+.git
+.env
+service-account-key.json
+dist
+build
+server/__pycache__
