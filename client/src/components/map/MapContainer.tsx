@@ -14,13 +14,13 @@ const API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || "";
 const COLORS = {
   // Default State (Inactive)
   default: {
-    start: "#6366f1", // Indigo 500
-    end: "#8b5cf6", // Violet 500
+    start: "#FF9A44",
+    end: "#FC6076",
   },
   // Selected State (Active)
   selected: {
-    start: "#f43f5e", // Rose 500
-    end: "#e11d48", // Rose 600
+    start: "#FC6076",
+    end: "#FF9A44",
   },
   stroke: "#ffffff",
 };
@@ -30,6 +30,8 @@ interface MapContainerProps {
   activeDayNumber: number;
   selectedPlaceName?: string | null;
   emptyKeyMessage: string;
+  /** 지도 빈 공간 클릭 시 호출되는 콜백 (선택 해제용) */
+  onMapClick?: () => void;
 }
 
 interface MapsApi {
@@ -172,6 +174,7 @@ export const MapContainer = ({
   activeDayNumber,
   selectedPlaceName,
   emptyKeyMessage,
+  onMapClick, // [NEW] 부모로부터 전달받는 클릭 핸들러
 }: MapContainerProps) => {
   const defaultCenter = { lat: 37.5665, lng: 126.978 };
   const mapsApi = getMapsApi();
@@ -231,6 +234,11 @@ export const MapContainer = ({
             zoomControl: true,
             minZoom: 3,
           }}
+          // [NEW] 지도 빈 공간 클릭 시 선택 해제 처리
+          onClick={() => {
+            setClickedPlaceName(null); // 내부 인포윈도우 닫기
+            onMapClick?.(); // 부모 컴포넌트(PlanPage)에 선택 해제 알림
+          }}
         >
           {plan && activeDay && (
             <>
@@ -250,7 +258,11 @@ export const MapContainer = ({
                     key={`${activeDay.dayNumber}-${idx}`}
                     position={place.location}
                     title={place.placeName}
-                    onClick={() => setClickedPlaceName(place.placeName)}
+                    // 마커 클릭 시에는 이벤트 버블링으로 인한 지도 클릭(해제)을 방지할 필요는 없지만,
+                    // 로직상 명확히 내부 state를 설정합니다.
+                    onClick={() => {
+                      setClickedPlaceName(place.placeName);
+                    }}
                     zIndex={isSelected ? 100 : 1}
                     icon={
                       mapsApi
@@ -271,10 +283,14 @@ export const MapContainer = ({
                 <InfoWindow
                   position={activePlace.location}
                   pixelOffset={[0, -44]}
-                  onCloseClick={() => setClickedPlaceName(null)}
+                  onCloseClick={() => {
+                    setClickedPlaceName(null);
+                    onMapClick?.(); // X 버튼 클릭 시에도 완전 해제
+                  }}
                   headerDisabled
                 >
-                  <div className="w-[220px] overflow-hidden rounded-lg bg-white font-sans">
+                  {/* [UPDATE] InfoWindow Card Shadow/Design */}
+                  <div className="w-[220px] overflow-hidden rounded-lg bg-white font-sans shadow-md">
                     {activePlace.photoUrl && (
                       <div className="relative h-28 w-full bg-slate-100">
                         <img
@@ -294,7 +310,7 @@ export const MapContainer = ({
                           {activePlace.placeName}
                         </h3>
                         {activePlace.rating && (
-                          <div className="flex shrink-0 items-center gap-0.5 text-[11px] font-medium text-amber-500">
+                          <div className="flex shrink-0 items-center gap-0.5 text-[11px] font-medium text-[#FF9A44]">
                             <span>★</span>
                             <span>{activePlace.rating}</span>
                           </div>

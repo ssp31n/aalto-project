@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { ItineraryList } from "../components/plan/ItineraryList";
 import {
@@ -60,6 +60,9 @@ const PlanPage = () => {
   const [saving, setSaving] = useState(false);
   const [selectedPlace, setSelectedPlace] = useState<string | null>(null);
   const [activeDayNumber, setActiveDayNumber] = useState(1);
+
+  // Carousel Refs for scrolling interaction
+  const carouselRef = useRef<HTMLDivElement>(null);
 
   // 현재 날짜 (min date 설정용)
   const todayStr = new Date().toISOString().split("T")[0];
@@ -160,17 +163,16 @@ const PlanPage = () => {
     }
 
     // Extract Month (1-12 string)
-    // "2024-05-20" -> split("-")[1] -> "05" -> "5"
     const monthStr = parseInt(startDate.split("-")[1], 10).toString();
 
     try {
       const initialPlan = await generatePlan({
         destination,
-        days: durationDays, // Calculated days
+        days: durationDays,
         companions,
         style,
         transportation,
-        month: monthStr, // Calculated month
+        month: monthStr,
         useWebSearch: false,
       });
       const finalPlan = await enrichAndOptimizePlan(initialPlan, destination);
@@ -227,9 +229,39 @@ const PlanPage = () => {
     }
   };
 
-  const activeDayForMap =
-    plan?.days.find((d) => d.dayNumber === activeDayNumber)?.dayNumber ?? 1;
+  // --- Memoized Helpers for Map & Carousel ---
+  const activeDayForMap = useMemo(() => {
+    return (
+      plan?.days.find((d) => d.dayNumber === activeDayNumber) ??
+      plan?.days[0] ??
+      null
+    );
+  }, [plan, activeDayNumber]);
+
+  const placesForCarousel = useMemo(
+    () => activeDayForMap?.places ?? [],
+    [activeDayForMap],
+  );
+
   const isOwner = user && userPlans.some((p) => p.id === planId);
+
+  // 스크롤 동기화: 지도의 핀을 클릭했을 때 (selectedPlace 변경 시) 가로 스크롤 이동
+  useEffect(() => {
+    if (!selectedPlace || !carouselRef.current) return;
+    const index = placesForCarousel.findIndex(
+      (p) => p.placeName === selectedPlace,
+    );
+    if (index !== -1) {
+      const card = carouselRef.current.children[index] as HTMLElement;
+      if (card) {
+        card.scrollIntoView({
+          behavior: "smooth",
+          block: "nearest",
+          inline: "center",
+        });
+      }
+    }
+  }, [selectedPlace, placesForCarousel]);
 
   return (
     <div className="flex h-[100dvh] flex-col bg-slate-50 overflow-hidden">
@@ -240,9 +272,7 @@ const PlanPage = () => {
             onClick={() => navigate("/plan")}
             className="flex cursor-pointer items-center gap-2"
           >
-            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-lg shadow-indigo-500/30">
-              <SparkIcon className="h-4 w-4" />
-            </div>
+            <img src="/icon.svg" alt="TripFlow" className="h-8 w-8 rounded-lg shadow-sm" />
             <span className="text-lg font-bold tracking-tight text-slate-900">
               TripFlow
             </span>
@@ -273,6 +303,7 @@ const PlanPage = () => {
       <main className="relative flex min-h-0 flex-1 overflow-hidden">
         {!plan && !loading ? (
           <div className="h-full w-full overflow-y-auto px-4 py-8 custom-scrollbar">
+            {/* ... (Search Form - 동일) ... */}
             <div className="mx-auto max-w-lg space-y-8 pb-20">
               <div className="text-center">
                 <h1 className="text-3xl font-extrabold text-slate-900 sm:text-4xl">
@@ -295,11 +326,10 @@ const PlanPage = () => {
                     value={destination}
                     onChange={(e) => setDestination(e.target.value)}
                     placeholder="e.g. Kyoto, Paris"
-                    className="w-full rounded-xl border-0 bg-slate-50 px-4 py-3.5 text-lg font-semibold text-slate-900 placeholder:text-slate-400 focus:ring-2 focus:ring-indigo-500"
+                    className="w-full rounded-xl border-0 bg-slate-50 px-4 py-3.5 text-lg font-semibold text-slate-900 placeholder:text-slate-400 focus:ring-2 focus:ring-[#FC6076]"
                   />
                 </div>
 
-                {/* Date Picker Section */}
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-400">
@@ -312,12 +342,11 @@ const PlanPage = () => {
                       value={startDate}
                       onChange={(e) => {
                         setStartDate(e.target.value);
-                        // Reset end date if it becomes invalid
                         if (endDate && e.target.value > endDate) {
                           setEndDate("");
                         }
                       }}
-                      className="w-full rounded-xl border-0 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-900 focus:ring-2 focus:ring-indigo-500"
+                      className="w-full rounded-xl border-0 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-900 focus:ring-2 focus:ring-[#FC6076]"
                     />
                   </div>
                   <div>
@@ -330,7 +359,7 @@ const PlanPage = () => {
                       min={startDate || todayStr}
                       value={endDate}
                       onChange={(e) => setEndDate(e.target.value)}
-                      className="w-full rounded-xl border-0 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-900 focus:ring-2 focus:ring-indigo-500"
+                      className="w-full rounded-xl border-0 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-900 focus:ring-2 focus:ring-[#FC6076]"
                     />
                   </div>
                 </div>
@@ -343,7 +372,7 @@ const PlanPage = () => {
                     <select
                       value={companions}
                       onChange={(e) => setCompanions(e.target.value)}
-                      className="w-full rounded-xl border-0 bg-slate-50 px-4 py-3 text-sm font-medium focus:ring-2 focus:ring-indigo-500"
+                      className="w-full rounded-xl border-0 bg-slate-50 px-4 py-3 text-sm font-medium focus:ring-2 focus:ring-[#FC6076]"
                     >
                       <option value="solo">Solo</option>
                       <option value="couple">Couple</option>
@@ -358,7 +387,7 @@ const PlanPage = () => {
                     <select
                       value={style}
                       onChange={(e) => setStyle(e.target.value)}
-                      className="w-full rounded-xl border-0 bg-slate-50 px-4 py-3 text-sm font-medium focus:ring-2 focus:ring-indigo-500"
+                      className="w-full rounded-xl border-0 bg-slate-50 px-4 py-3 text-sm font-medium focus:ring-2 focus:ring-[#FC6076]"
                     >
                       <option value="food">Gourmet</option>
                       <option value="relax">Chill</option>
@@ -374,7 +403,7 @@ const PlanPage = () => {
                   <select
                     value={transportation}
                     onChange={(e) => setTransportation(e.target.value)}
-                    className="w-full rounded-xl border-0 bg-slate-50 px-4 py-3 text-sm font-medium focus:ring-2 focus:ring-indigo-500"
+                    className="w-full rounded-xl border-0 bg-slate-50 px-4 py-3 text-sm font-medium focus:ring-2 focus:ring-[#FC6076]"
                   >
                     <option value="public">Public / Walk</option>
                     <option value="car">Rental Car</option>
@@ -384,7 +413,7 @@ const PlanPage = () => {
                 <button
                   type="submit"
                   disabled={loading}
-                  className="flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 py-4 text-base font-bold text-white shadow-lg shadow-indigo-500/30 transition active:scale-[0.98] disabled:opacity-70 hover:bg-indigo-700"
+                  className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#FF9A44] to-[#FC6076] py-4 text-base font-bold text-white shadow-lg shadow-[#FC6076]/30 transition active:scale-[0.98] disabled:opacity-70 hover:brightness-95"
                 >
                   <SparkIcon className="h-5 w-5" />
                   Generate Trip
@@ -422,8 +451,8 @@ const PlanPage = () => {
         ) : loading ? (
           <div className="flex h-full w-full flex-col items-center justify-center p-8 text-center">
             <div className="relative mb-8 h-20 w-20">
-              <div className="absolute inset-0 animate-ping rounded-full bg-indigo-100"></div>
-              <div className="relative flex h-full w-full items-center justify-center rounded-full bg-indigo-50 text-indigo-600 shadow-xl shadow-indigo-100">
+              <div className="absolute inset-0 animate-ping rounded-full bg-[#FFE7D4]"></div>
+              <div className="relative flex h-full w-full items-center justify-center rounded-full bg-[#FFF1F3] text-[#FC6076] shadow-xl shadow-[#FC6076]/20">
                 <ProgressIcon className="h-10 w-10 animate-spin" />
               </div>
             </div>
@@ -451,7 +480,9 @@ const PlanPage = () => {
                 onPlaceClick={(d, name) => {
                   setActiveDayNumber(d);
                   setSelectedPlace(name);
-                  setMobileView("map");
+                  if (window.innerWidth < 1024) {
+                    setMobileView("map");
+                  }
                 }}
               />
             </div>
@@ -465,10 +496,80 @@ const PlanPage = () => {
             >
               <MapContainer
                 plan={plan!}
-                activeDayNumber={activeDayForMap}
+                activeDayNumber={activeDayForMap?.dayNumber || 1}
                 selectedPlaceName={selectedPlace}
                 emptyKeyMessage="Map key missing"
+                // [수정] 지도 빈 공간 클릭 시 선택 해제 (MapContainer 내부 구현 필요)
+                onMapClick={() => setSelectedPlace(null)}
               />
+
+              {/* [NEW] Mobile Map Bottom Carousel (Sliding List) */}
+              <div
+                className="lg:hidden absolute bottom-28 left-0 right-0 z-20 flex gap-3 overflow-x-auto px-4 pb-4 snap-x no-scrollbar"
+                ref={carouselRef}
+              >
+                {placesForCarousel.map((place, idx) => {
+                  const isSelected = selectedPlace === place.placeName;
+                  return (
+                    <div
+                      key={idx}
+                      onClick={() => setSelectedPlace(place.placeName)}
+                      // [수정] ring 제거 후 border-2 & shadow 방식 적용
+                      // 선택 시: 진한 테두리, 강한 그림자, 흰색 배경
+                      // 비선택 시: 투명 테두리(레이아웃 유지용), 약한 그림자
+                      className={`
+                          shrink-0 snap-center flex w-[85vw] max-w-[320px] items-center gap-3 rounded-xl p-3 transition-all cursor-pointer border-2
+                          ${
+                            isSelected
+                              ? "border-[#FC6076] shadow-xl shadow-[#FC6076]/20 bg-white scale-[1.02]"
+                              : "border-transparent shadow-md bg-white/95 text-slate-500"
+                          }
+                        `}
+                    >
+                      {/* Photo */}
+                      <div className="h-16 w-16 shrink-0 overflow-hidden rounded-lg bg-slate-100">
+                        {place.photoUrl ? (
+                          <img
+                            src={place.photoUrl}
+                            alt=""
+                            className="h-full w-full object-cover"
+                          />
+                        ) : (
+                          <div className="flex h-full w-full items-center justify-center text-xs text-slate-400">
+                            No Img
+                          </div>
+                        )}
+                      </div>
+                      {/* Info */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={`flex h-5 w-5 items-center justify-center rounded-full text-xs font-bold text-white ${isSelected ? "bg-[#FC6076]" : "bg-slate-400"}`}
+                          >
+                            {idx + 1}
+                          </span>
+                          <h4
+                            className={`truncate text-sm font-bold ${isSelected ? "text-slate-900" : "text-slate-700"}`}
+                          >
+                            {place.placeName}
+                          </h4>
+                        </div>
+                        <p className="mt-0.5 truncate text-xs text-slate-500">
+                          {place.description}
+                        </p>
+                        {place.rating && (
+                          <div className="mt-1 flex items-center gap-1 text-[10px] text-[#FF9A44] font-bold">
+                            <span>★ {place.rating}</span>
+                            <span className="text-slate-300">
+                              ({place.userRatingCount})
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
 
               {/* Floating Action Buttons */}
               <div className="absolute right-4 top-4 flex flex-col gap-2 z-10">
@@ -484,7 +585,7 @@ const PlanPage = () => {
                 {isOwner && planId && (
                   <button
                     onClick={() => handleDelete(planId)}
-                    className="glass rounded-full p-3 text-rose-500 transition hover:scale-110 active:scale-90"
+                    className="glass rounded-full p-3 text-[#FC6076] transition hover:scale-110 active:scale-90"
                     title="Delete Plan"
                   >
                     <TrashIcon className="h-5 w-5" />
@@ -496,22 +597,33 @@ const PlanPage = () => {
                 <button
                   onClick={handleSave}
                   disabled={saving}
-                  className="absolute right-4 bottom-28 lg:bottom-8 z-20 flex items-center gap-2 rounded-full bg-indigo-600 px-6 py-3 text-sm font-bold text-white shadow-lg shadow-indigo-600/30 transition hover:scale-105 hover:bg-indigo-700 active:scale-95"
+                  className="absolute right-4 bottom-28 lg:bottom-8 z-20 hidden items-center gap-2 rounded-full bg-gradient-to-r from-[#FF9A44] to-[#FC6076] px-6 py-3 text-sm font-bold text-white shadow-lg shadow-[#FC6076]/30 transition hover:scale-105 hover:brightness-95 active:scale-95 lg:flex"
                 >
                   <SaveIcon className="h-4 w-4" />
                   {saving ? "Saving..." : "Save Plan"}
                 </button>
               )}
+
+              {/* Mobile Save Button */}
+              {user && !planId && (
+                <button
+                  onClick={handleSave}
+                  disabled={saving}
+                  className="absolute right-4 top-20 z-20 flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-r from-[#FF9A44] to-[#FC6076] text-white shadow-lg transition hover:brightness-95 active:scale-90 lg:hidden"
+                >
+                  <SaveIcon className="h-4 w-4" />
+                </button>
+              )}
             </div>
 
-            {/* Mobile Bottom Toggle (Floating Glass Pill) */}
+            {/* Mobile Bottom Toggle */}
             <div className="absolute bottom-8 left-1/2 z-40 flex -translate-x-1/2 lg:hidden">
               <div className="glass flex items-center rounded-full p-1.5 ring-1 ring-slate-200/50">
                 <button
                   onClick={() => setMobileView("itinerary")}
                   className={`flex items-center gap-2 rounded-full px-6 py-3 text-sm font-bold transition-all ${
                     mobileView === "itinerary"
-                      ? "bg-slate-900 text-white shadow-lg"
+                      ? "bg-gradient-to-r from-[#FF9A44] to-[#FC6076] text-white shadow-lg shadow-[#FC6076]/20"
                       : "text-slate-500 hover:bg-slate-50"
                   }`}
                 >
@@ -522,7 +634,7 @@ const PlanPage = () => {
                   onClick={() => setMobileView("map")}
                   className={`flex items-center gap-2 rounded-full px-6 py-3 text-sm font-bold transition-all ${
                     mobileView === "map"
-                      ? "bg-slate-900 text-white shadow-lg"
+                      ? "bg-gradient-to-r from-[#FF9A44] to-[#FC6076] text-white shadow-lg shadow-[#FC6076]/20"
                       : "text-slate-500 hover:bg-slate-50"
                   }`}
                 >

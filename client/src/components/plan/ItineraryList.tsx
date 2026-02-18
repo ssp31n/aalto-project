@@ -12,9 +12,9 @@ const activityConfig: Record<
   "meal" | "sightseeing" | "activity",
   { label: string; color: string; bg: string }
 > = {
-  meal: { label: "Eat", color: "text-orange-600", bg: "bg-orange-50" },
-  sightseeing: { label: "Visit", color: "text-indigo-600", bg: "bg-indigo-50" },
-  activity: { label: "Play", color: "text-emerald-600", bg: "bg-emerald-50" },
+  meal: { label: "Eat", color: "text-[#FC6076]", bg: "bg-[#FFF1F3]" },
+  sightseeing: { label: "Visit", color: "text-[#FC6076]", bg: "bg-[#FFF1F3]" },
+  activity: { label: "Play", color: "text-[#FF9A44]", bg: "bg-[#FFF4EA]" },
 };
 
 export const ItineraryList = ({
@@ -48,12 +48,12 @@ export const ItineraryList = ({
                 onClick={() => onDaySelect(day.dayNumber)}
                 className={`flex shrink-0 flex-col items-center rounded-2xl border px-4 py-2 transition-all ${
                   isActive
-                    ? "border-indigo-600 bg-indigo-600 text-white shadow-md shadow-indigo-200"
+                    ? "border-[#FC6076] bg-[#FC6076] text-white shadow-md shadow-[#FC6076]/20"
                     : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50"
                 }`}
               >
                 <span
-                  className={`text-[10px] font-bold uppercase tracking-wider ${isActive ? "text-indigo-200" : "text-slate-400"}`}
+                  className={`text-[10px] font-bold uppercase tracking-wider ${isActive ? "text-[#FFE7D4]" : "text-slate-400"}`}
                 >
                   Day
                 </span>
@@ -99,7 +99,7 @@ export const ItineraryList = ({
                   onClick={() =>
                     onPlaceClick(activeDay.dayNumber, place.placeName)
                   }
-                  className="flex flex-1 flex-col overflow-hidden rounded-2xl border border-slate-100 bg-white text-left shadow-sm transition-all hover:border-indigo-200 hover:shadow-md active:scale-[0.99]"
+                  className="flex flex-1 flex-col overflow-hidden rounded-2xl border border-slate-100 bg-white text-left shadow-sm transition-all hover:border-[#FC6076]/30 hover:shadow-md active:scale-[0.99]"
                 >
                   <div className="flex w-full">
                     {place.photoUrl && (
@@ -121,7 +121,7 @@ export const ItineraryList = ({
                         </span>
                         {place.rating && (
                           <div className="flex items-center gap-1 text-xs font-medium text-slate-700">
-                            <span className="text-amber-400">★</span>
+                            <span className="text-[#FF9A44]">★</span>
                             {place.rating.toFixed(1)}
                           </div>
                         )}

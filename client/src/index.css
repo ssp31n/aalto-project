@@ -7,7 +7,8 @@
 :root {
   --bg: #f8fafc;
   --text: #1e293b;
-  --primary: #6366f1;
+  --primary: #fc6076;
+  --primary-alt: #ff9a44;
 }
 
 @layer base {
