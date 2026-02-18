@@ -1,6 +1,7 @@
 # server/main.py
 import os
 import json
+import requests
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -16,6 +17,7 @@ load_dotenv()
 PROJECT_ID = os.getenv("GCP_PROJECT_ID")
 LOCATION = os.getenv("GCP_LOCATION", "asia-northeast3") 
 CREDENTIALS_PATH = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY") # API 키 로드
 
 # Vertex AI 초기화 (에러 처리 포함)
 try:
@@ -45,6 +47,9 @@ class PlanRequest(BaseModel):
     days: int
     companions: str
     style: str
+
+class PlaceDetailRequest(BaseModel):
+    placeName: str
 
 # 기본 접속 테스트용
 @app.get("/")
@@ -99,4 +104,52 @@ async def generate_plan(request: PlanRequest):
     except Exception as e:
         print(f"Error: {e}")
         # 에러 발생 시 500 상태코드와 에러 메시지 반환
+        raise HTTPException(status_code=500, detail=str(e))
+
+# 7. 장소 정보(사진, 좌표, 별점) 조회 API
+@app.post("/api/get-place-details")
+async def get_place_details(request: PlaceDetailRequest):
+    if not MAPS_API_KEY:
+        raise HTTPException(status_code=500, detail="Server Maps API Key not configured")
+
+    # Google Places API (New) Text Search URL
+    url = "https://places.googleapis.com/v1/places:searchText"
+    
+    headers = {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": MAPS_API_KEY,
+        # 필요한 필드만 골라서 요청 (비용 절약)
+        "X-Goog-FieldMask": "places.id,places.formattedAddress,places.rating,places.photos,places.location" 
+    }
+    
+    payload = {
+        "textQuery": request.placeName
+    }
+
+    try:
+        response = requests.post(url, json=payload, headers=headers)
+        data = response.json()
+        
+        if "places" in data and len(data["places"]) > 0:
+            place = data["places"][0]
+            
+            # 사진 URL 생성 (사진이 있다면)
+            photo_url = None
+            if "photos" in place and len(place["photos"]) > 0:
+                photo_ref = place["photos"][0]["name"] # 'places/PLACE_ID/photos/PHOTO_ID' 형식
+                # 최대 너비 400px로 이미지 요청 URL 생성
+                photo_url = f"https://places.googleapis.com/v1/{photo_ref}/media?maxHeightPx=400&maxWidthPx=400&key={MAPS_API_KEY}"
+
+            return {
+                "found": True,
+                "address": place.get("formattedAddress", ""),
+                "rating": place.get("rating", 0),
+                "location": place.get("location", {"latitude": 0, "longitude": 0}), # 위도, 경도
+                "photoUrl": photo_url
+            }
+        else:
+            return {"found": False}
+
+    except Exception as e:
+        print(f"Places API Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
