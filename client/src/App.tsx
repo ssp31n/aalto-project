@@ -16,15 +16,30 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   return <>{children}</>;
 };
 
+// client/src/App.tsx (부분 수정)
+// 기존 imports 유지...
+
 function App() {
   return (
     <AuthProvider>
       <Router>
         <Routes>
-          <Route path="/" element={<Navigate to="/login" replace />} />
+          <Route path="/" element={<Login />} />
           <Route path="/login" element={<Login />} />
+
+          {/* 기존 /plan 라우트 */}
           <Route
             path="/plan"
+            element={
+              <ProtectedRoute>
+                <PlanPage />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* 추가된 상세 페이지 라우트 (/plan/문서ID) */}
+          <Route
+            path="/plan/:planId"
             element={
               <ProtectedRoute>
                 <PlanPage />
