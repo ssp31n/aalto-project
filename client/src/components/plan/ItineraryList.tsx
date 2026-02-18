@@ -5,6 +5,7 @@ interface ItineraryListProps {
   activeDayNumber: number;
   onDaySelect: (dayNumber: number) => void;
   onPlaceClick: (dayNumber: number, placeName: string) => void;
+  onPlaceDelete: (dayNumber: number, placeIndex: number) => void; // ✅ 추가
 }
 
 // accommodation 제거 (타입 불일치 해결)
@@ -22,6 +23,7 @@ export const ItineraryList = ({
   activeDayNumber,
   onDaySelect,
   onPlaceClick,
+  onPlaceDelete, // ✅ 추가
 }: ItineraryListProps) => {
   const activeDay =
     plan.days.find((day) => day.dayNumber === activeDayNumber) ?? plan.days[0];
@@ -53,7 +55,9 @@ export const ItineraryList = ({
                 }`}
               >
                 <span
-                  className={`text-[10px] font-bold uppercase tracking-wider ${isActive ? "text-[#FFE7D4]" : "text-slate-400"}`}
+                  className={`text-[10px] font-bold uppercase tracking-wider ${
+                    isActive ? "text-[#FFE7D4]" : "text-slate-400"
+                  }`}
                 >
                   Day
                 </span>
@@ -70,7 +74,7 @@ export const ItineraryList = ({
       <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4 pb-24 lg:pb-8">
         <div className="relative space-y-0">
           {/* Vertical Connecting Line */}
-          <div className="absolute left-[19px] top-4 bottom-4 w-0.5 bg-slate-100" />
+          <div className="absolute bottom-4 left-[19px] top-4 w-0.5 bg-slate-100" />
 
           {activeDay.places.map((place, index) => {
             // 타입 안전하게 접근
@@ -94,12 +98,27 @@ export const ItineraryList = ({
                   </div>
                 </div>
 
+                {/* ✅ Place Remove Button (minimal change) */}
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onPlaceDelete(activeDay.dayNumber, index);
+                  }}
+                  className="absolute right-2 top-2 z-20 inline-flex h-8 w-8 items-center justify-center rounded-full bg-white/95 text-slate-500 shadow hover:text-[#FC6076] hover:shadow-md"
+                  title="Remove place"
+                  aria-label="Remove place"
+                >
+                  −
+                </button>
+
                 {/* Card */}
                 <button
                   onClick={() =>
                     onPlaceClick(activeDay.dayNumber, place.placeName)
                   }
-                  className="flex flex-1 flex-col overflow-hidden rounded-2xl border border-slate-100 bg-white text-left shadow-sm transition-all hover:border-[#FC6076]/30 hover:shadow-md active:scale-[0.99]"
+                  className="flex flex-1 flex-col overflow-hidden rounded-2xl border border-slate-100 bg-white pr-10 text-left shadow-sm transition-all hover:border-[#FC6076]/30 hover:shadow-md active:scale-[0.99]"
                 >
                   <div className="flex w-full">
                     {place.photoUrl && (
@@ -112,7 +131,7 @@ export const ItineraryList = ({
                       </div>
                     )}
 
-                    <div className="flex-1 p-3.5 min-w-0">
+                    <div className="min-w-0 flex-1 p-3.5">
                       <div className="flex items-start justify-between">
                         <span
                           className={`inline-flex items-center rounded-md px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${config.bg} ${config.color}`}
@@ -127,7 +146,7 @@ export const ItineraryList = ({
                         )}
                       </div>
 
-                      <h3 className="mt-1 font-bold text-slate-900 truncate">
+                      <h3 className="mt-1 truncate font-bold text-slate-900">
                         {place.placeName}
                       </h3>
                       {place.approxTime && (

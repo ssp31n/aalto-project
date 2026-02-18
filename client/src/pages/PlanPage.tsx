@@ -40,7 +40,8 @@ const getDistanceKm = (a: Place, b: Place) => {
 
 const routeDistanceScore = (arr: Place[]) => {
   let sum = 0;
-  for (let i = 0; i < arr.length - 1; i++) sum += getDistanceKm(arr[i], arr[i + 1]);
+  for (let i = 0; i < arr.length - 1; i++)
+    sum += getDistanceKm(arr[i], arr[i + 1]);
   return sum;
 };
 
@@ -95,7 +96,8 @@ const detectMealType = (place: Place): MealType => {
   const t = `${place.placeName} ${place.description}`.toLowerCase();
   if (/(breakfast|brunch|bakery|morning)/.test(t)) return "breakfast";
   if (/(lunch|bistro|deli|sandwich|noodle|ramen)/.test(t)) return "lunch";
-  if (/(dinner|bbq|grill|steak|izakaya|bar|wine|night)/.test(t)) return "dinner";
+  if (/(dinner|bbq|grill|steak|izakaya|bar|wine|night)/.test(t))
+    return "dinner";
   return "meal";
 };
 
@@ -110,7 +112,8 @@ const mealTemporalPenalty = (place: Place, idx: number, total: number) => {
   const type = detectMealType(place);
   const lunchCenter = Math.round(total * 0.45);
   const dinnerMin = Math.max(2, Math.round(total * 0.65));
-  if (type === "breakfast") return idx > Math.max(1, Math.round(total * 0.3)) ? 8 : 0;
+  if (type === "breakfast")
+    return idx > Math.max(1, Math.round(total * 0.3)) ? 8 : 0;
   if (type === "lunch") return Math.abs(idx - lunchCenter) * 3;
   if (type === "dinner") return idx < dinnerMin ? (dinnerMin - idx) * 7 : 0;
   return Math.abs(idx - lunchCenter) * 2;
@@ -132,7 +135,8 @@ const bestInsertionIndex = (base: Place[], meal: Place) => {
     const travelWeight = mustVisit ? 1.2 : 2.8;
     const temporal = mealTemporalPenalty(meal, idx, base.length + 1);
     const consecutiveMealPenalty =
-      (prev?.activityType === "meal" ? 16 : 0) + (next?.activityType === "meal" ? 16 : 0);
+      (prev?.activityType === "meal" ? 16 : 0) +
+      (next?.activityType === "meal" ? 16 : 0);
     const score = distPenalty * travelWeight + temporal + consecutiveMealPenalty;
 
     if (score < bestScore) {
@@ -152,7 +156,8 @@ const optimizeRoute = (places: Place[]): Place[] => {
   const meals = withLoc.filter((p) => p.activityType === "meal");
   const nonMeals = withLoc.filter((p) => p.activityType !== "meal");
 
-  let route = nonMeals.length > 1 ? twoOpt(nearestNeighbor(nonMeals)) : [...nonMeals];
+  let route =
+    nonMeals.length > 1 ? twoOpt(nearestNeighbor(nonMeals)) : [...nonMeals];
   const orderedMeals = [...meals].sort((a, b) => {
     const rank = (x: Place) =>
       detectMealType(x) === "breakfast"
@@ -185,7 +190,9 @@ const applyApproxTimes = (places: Place[]) => {
   return places.map((place, idx) => {
     const withTime = { ...place, approxTime: toHHMM(current) };
     const next = places[idx + 1];
-    const transferMin = next ? Math.max(10, Math.min(35, Math.round(getDistanceKm(place, next) * 6))) : 0;
+    const transferMin = next
+      ? Math.max(10, Math.min(35, Math.round(getDistanceKm(place, next) * 6)))
+      : 0;
     current += (place.durationMin || 90) + transferMin;
     return withTime;
   });
@@ -266,9 +273,10 @@ const PlanPage = () => {
           userRatingCount: details.userRatingCount,
           googlePlaceId: details.googlePlaceId,
           address: details.address,
-          hashtags: details.hashtags && details.hashtags.length > 0
-            ? details.hashtags
-            : place.hashtags,
+          hashtags:
+            details.hashtags && details.hashtags.length > 0
+              ? details.hashtags
+              : place.hashtags,
         };
       });
       day.places = applyApproxTimes(optimizeRoute(enriched));
@@ -388,6 +396,38 @@ const PlanPage = () => {
     } catch (e) {
       console.error(e);
     }
+  };
+
+  // ✅ [NEW] 장소 1개만 삭제 (plan state에서만 제거)
+  const handleDeletePlace = (dayNumber: number, placeIndex: number) => {
+    if (!plan) return;
+
+    const ok = window.confirm("Remove this place from the itinerary?");
+    if (!ok) return;
+
+    setPlan((prev) => {
+      if (!prev) return prev;
+
+      const day = prev.days.find((d) => d.dayNumber === dayNumber);
+      const deletedName = day?.places?.[placeIndex]?.placeName ?? null;
+
+      const next: TravelPlan = {
+        ...prev,
+        days: prev.days.map((d) => {
+          if (d.dayNumber !== dayNumber) return d;
+          const nextPlaces = d.places.filter((_, idx) => idx !== placeIndex);
+          // 삭제 후 시간 표시도 자연스럽게 이어지게 재계산만 (루트 재최적화는 안 함: 최소 변경)
+          return { ...d, places: applyApproxTimes(nextPlaces) };
+        }),
+      };
+
+      // 지도에서 선택 중인 장소가 삭제되면 선택 해제
+      if (deletedName && selectedPlace === deletedName) {
+        setSelectedPlace(null);
+      }
+
+      return next;
+    });
   };
 
   // --- Memoized Helpers for Map & Carousel ---
@@ -649,6 +689,7 @@ const PlanPage = () => {
                     setMobileView("map");
                   }
                 }}
+                onPlaceDelete={handleDeletePlace} // ✅ 추가
               />
             </div>
 
@@ -679,9 +720,6 @@ const PlanPage = () => {
                     <div
                       key={idx}
                       onClick={() => setSelectedPlace(place.placeName)}
-                      // [수정] ring 제거 후 border-2 & shadow 방식 적용
-                      // 선택 시: 진한 테두리, 강한 그림자, 흰색 배경
-                      // 비선택 시: 투명 테두리(레이아웃 유지용), 약한 그림자
                       className={`
                           shrink-0 snap-center flex w-[85vw] max-w-[320px] items-center gap-3 rounded-xl p-3 transition-all cursor-pointer border-2
                           ${
@@ -709,12 +747,16 @@ const PlanPage = () => {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
                           <span
-                            className={`flex h-5 w-5 items-center justify-center rounded-full text-xs font-bold text-white ${isSelected ? "bg-[#FC6076]" : "bg-slate-400"}`}
+                            className={`flex h-5 w-5 items-center justify-center rounded-full text-xs font-bold text-white ${
+                              isSelected ? "bg-[#FC6076]" : "bg-slate-400"
+                            }`}
                           >
                             {idx + 1}
                           </span>
                           <h4
-                            className={`truncate text-sm font-bold ${isSelected ? "text-slate-900" : "text-slate-700"}`}
+                            className={`truncate text-sm font-bold ${
+                              isSelected ? "text-slate-900" : "text-slate-700"
+                            }`}
                           >
                             {place.placeName}
                           </h4>
