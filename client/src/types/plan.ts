@@ -4,6 +4,10 @@ export interface Place {
   placeName: string;
   description: string;
   theme: string;
+  location?: { lat: number; lng: number };
+  photoUrl?: string;
+  rating?: number;
+  address?: string;
 }
 
 export interface DayPlan {
@@ -14,4 +18,5 @@ export interface DayPlan {
 export interface TravelPlan {
   title: string;
   days: DayPlan[];
+  destination?: string;
 }

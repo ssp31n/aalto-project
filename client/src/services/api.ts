@@ -1,4 +1,5 @@
-import type { TravelPlan } from "../types/plan"; // 'type' 키워드 추가
+// client/src/services/api.ts
+import type { TravelPlan } from "../types/plan";
 
 const API_BASE_URL = "http://localhost:8000/api";
 
@@ -44,16 +45,23 @@ export interface PlaceDetails {
   photoUrl?: string | null;
 }
 
+// [수정됨] destination 인자 추가 (기본값 "")
 export const getPlaceDetails = async (
   placeName: string,
+  destination: string = "",
 ): Promise<PlaceDetails> => {
   try {
+    // [핵심 수정] 검색어에 여행지 이름을 붙여서 정확도 향상
+    // 예: "스타벅스" -> "스타벅스 in 오사카"
+    const query = destination ? `${placeName} in ${destination}` : placeName;
+
     const response = await fetch(`${API_BASE_URL}/get-place-details`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ placeName }),
+      // 서버는 placeName 필드를 기대하므로, 조작된 쿼리를 넣어서 보냄
+      body: JSON.stringify({ placeName: query }),
     });
 
     if (!response.ok) {
@@ -63,7 +71,6 @@ export const getPlaceDetails = async (
     return await response.json();
   } catch (error) {
     console.error("API Error:", error);
-    // 에러 나도 전체 앱이 멈추지 않도록 빈 값 반환
     return { found: false };
   }
 };

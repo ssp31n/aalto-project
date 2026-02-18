@@ -1,33 +1,39 @@
-// src/App.tsx
-import {
-  BrowserRouter as Router,
-  Routes,
-  Route,
-  Navigate,
-} from "react-router-dom";
-import { AuthProvider, useAuth } from "./contexts/AuthContext";
+// client/src/App.tsx
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import Login from "./pages/Login";
-import PlanPage from "./pages/PlanPage"; // 새로 만든 파일 import
+import PlanPage from "./pages/PlanPage";
+import { AuthProvider, useAuth } from "./contexts/AuthContext";
 
+// 로그인 상태를 체크하여 접근을 제어하는 컴포넌트
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   const { user, loading } = useAuth();
-  if (loading) return <div>Loading...</div>;
-  if (!user) return <Navigate to="/login" replace />;
+
+  // 인증 상태 확인 중일 때 로딩 표시
+  if (loading) {
+    return (
+      <div className="h-screen flex items-center justify-center">
+        Loading...
+      </div>
+    );
+  }
+
+  // 로그인이 안 되어 있으면 로그인 페이지로 튕겨내기
+  if (!user) {
+    return <Navigate to="/login" replace />;
+  }
+
+  // 로그인 되어 있으면 자식 컴포넌트 보여주기
   return <>{children}</>;
 };
 
-// client/src/App.tsx (부분 수정)
-// 기존 imports 유지...
-
 function App() {
   return (
-    <AuthProvider>
-      <Router>
+    <BrowserRouter>
+      <AuthProvider>
         <Routes>
-          <Route path="/" element={<Login />} />
           <Route path="/login" element={<Login />} />
 
-          {/* 기존 /plan 라우트 */}
+          {/* 1. 여행 계획 생성 페이지 (입력 폼) */}
           <Route
             path="/plan"
             element={
@@ -37,7 +43,7 @@ function App() {
             }
           />
 
-          {/* 추가된 상세 페이지 라우트 (/plan/문서ID) */}
+          {/* 2. 여행 계획 상세 페이지 (결과 지도) */}
           <Route
             path="/plan/:planId"
             element={
@@ -46,9 +52,15 @@ function App() {
               </ProtectedRoute>
             }
           />
+
+          {/* 3. 기본 접속 시 /plan으로 자동 이동 */}
+          <Route path="/" element={<Navigate to="/plan" replace />} />
+
+          {/* 4. 없는 페이지로 접근 시에도 /plan으로 이동 (404 처리) */}
+          <Route path="*" element={<Navigate to="/plan" replace />} />
         </Routes>
-      </Router>
-    </AuthProvider>
+      </AuthProvider>
+    </BrowserRouter>
   );
 }
 
