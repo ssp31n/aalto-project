@@ -1,12 +1,27 @@
-import { APIProvider, InfoWindow, Map, Marker, useMap } from "@vis.gl/react-google-maps";
+import {
+  APIProvider,
+  InfoWindow,
+  Map,
+  Marker,
+  useMap,
+} from "@vis.gl/react-google-maps";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Place, TravelPlan } from "../../types/plan";
 
 const API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || "";
 
-const THEME = {
-  gradientStart: "#6366f1",
-  gradientEnd: "#8b5cf6",
+// --- Color Configuration ---
+const COLORS = {
+  // Default State (Inactive)
+  default: {
+    start: "#6366f1", // Indigo 500
+    end: "#8b5cf6", // Violet 500
+  },
+  // Selected State (Active)
+  selected: {
+    start: "#f43f5e", // Rose 500
+    end: "#e11d48", // Rose 600
+  },
   stroke: "#ffffff",
 };
 
@@ -27,7 +42,9 @@ interface MapsApi {
     clickable: boolean;
     map: object;
   }) => { setMap: (map: object | null) => void };
-  LatLngBounds: new () => { extend: (point: { lat: number; lng: number }) => void };
+  LatLngBounds: new () => {
+    extend: (point: { lat: number; lng: number }) => void;
+  };
   Size: new (width: number, height: number) => unknown;
   Point: new (x: number, y: number) => unknown;
 }
@@ -42,29 +59,42 @@ const getMapsApi = (): MapsApi | null => {
   return api?.maps ?? null;
 };
 
+/**
+ * Modern Pin Generator
+ * - No White Circle inside
+ * - White Text
+ * - Changes Color on Select (No scaling)
+ */
 const createMinimalPin = (index: number, isSelected: boolean) => {
-  const scale = isSelected ? 1.35 : 1.0;
-  const opacity = isSelected ? 1.0 : 0.95;
-  const strokeWidth = isSelected ? 2.5 : 1.5;
+  // 1. Scale Logic: 확대 효과 제거 (항상 1.0)
+  const scale = 1.0;
+  const opacity = 1.0;
+  // 선택 시 테두리를 약간 두껍게 하여 선명도 확보
+  const strokeWidth = isSelected ? 2.0 : 1.2;
+
+  // 2. Color Logic: 선택 시 붉은 계열로 변경
+  const startColor = isSelected ? COLORS.selected.start : COLORS.default.start;
+  const endColor = isSelected ? COLORS.selected.end : COLORS.default.end;
 
   const svg = `
     <svg xmlns="http://www.w3.org/2000/svg" width="32" height="40" viewBox="0 0 32 40" style="transform: scale(${scale}); transform-origin: bottom center; opacity: ${opacity}; overflow: visible;">
       <defs>
-        <linearGradient id="grad-unified" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" style="stop-color:${THEME.gradientStart};stop-opacity:1" />
-          <stop offset="100%" style="stop-color:${THEME.gradientEnd};stop-opacity:1" />
+        <linearGradient id="grad-${index}-${isSelected ? "sel" : "def"}" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" style="stop-color:${startColor};stop-opacity:1" />
+          <stop offset="100%" style="stop-color:${endColor};stop-opacity:1" />
         </linearGradient>
         <filter id="soft-shadow" x="-50%" y="-20%" width="200%" height="150%">
-          <feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="rgba(0,0,0,0.2)"/>
+          <feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="rgba(0,0,0,0.3)"/>
         </filter>
       </defs>
+      
       <path d="M16 0C7.163 0 0 7.163 0 16c0 10 16 24 16 24s16-14 16-24c0-8.837-7.163-16-16-16z"
-            fill="url(#grad-unified)"
+            fill="url(#grad-${index}-${isSelected ? "sel" : "def"})"
             filter="url(#soft-shadow)"
-            stroke="${THEME.stroke}"
+            stroke="${COLORS.stroke}"
             stroke-width="${strokeWidth}" />
-      <circle cx="16" cy="16" r="6" fill="white"/>
-      <text x="16" y="20" text-anchor="middle" font-family="Pretendard, sans-serif" font-size="11" font-weight="800" fill="${THEME.gradientStart}">${index + 1}</text>
+            
+      <text x="16" y="21" text-anchor="middle" font-family="Pretendard, sans-serif" font-size="13" font-weight="700" fill="white">${index + 1}</text>
     </svg>
   `;
 
@@ -73,7 +103,9 @@ const createMinimalPin = (index: number, isSelected: boolean) => {
 
 const RoutePolyline = ({ path }: { path: { lat: number; lng: number }[] }) => {
   const map = useMap();
-  const polylineRef = useRef<{ setMap: (map: object | null) => void } | null>(null);
+  const polylineRef = useRef<{ setMap: (map: object | null) => void } | null>(
+    null,
+  );
 
   useEffect(() => {
     const mapsApi = getMapsApi();
@@ -83,7 +115,7 @@ const RoutePolyline = ({ path }: { path: { lat: number; lng: number }[] }) => {
     polylineRef.current = new mapsApi.Polyline({
       path,
       geodesic: true,
-      strokeColor: THEME.gradientStart,
+      strokeColor: COLORS.default.start, // 경로 색상은 기본 색상 유지
       strokeOpacity: 0.6,
       strokeWeight: 5,
       clickable: false,
@@ -147,11 +179,16 @@ export const MapContainer = ({
 
   const activeDay = useMemo(() => {
     if (!plan) return null;
-    return plan.days.find((day) => day.dayNumber === activeDayNumber) ?? plan.days[0] ?? null;
+    return (
+      plan.days.find((day) => day.dayNumber === activeDayNumber) ??
+      plan.days[0] ??
+      null
+    );
   }, [plan, activeDayNumber]);
 
   const validClickedPlaceName =
-    clickedPlaceName && activeDay?.places.some((p) => p.placeName === clickedPlaceName)
+    clickedPlaceName &&
+    activeDay?.places.some((p) => p.placeName === clickedPlaceName)
       ? clickedPlaceName
       : null;
 
@@ -159,7 +196,11 @@ export const MapContainer = ({
 
   const activePlace = useMemo(() => {
     if (!activeDay || !activePlaceName) return null;
-    return activeDay.places.find((p) => p.placeName === activePlaceName && p.location) ?? null;
+    return (
+      activeDay.places.find(
+        (p) => p.placeName === activePlaceName && p.location,
+      ) ?? null
+    );
   }, [activeDay, activePlaceName]);
 
   if (!API_KEY) {
@@ -170,7 +211,8 @@ export const MapContainer = ({
     );
   }
 
-  const path = activeDay?.places.filter((p) => p.location).map((p) => p.location!) ?? [];
+  const path =
+    activeDay?.places.filter((p) => p.location).map((p) => p.location!) ?? [];
 
   return (
     <div className="h-full w-full outline-none">
@@ -192,7 +234,10 @@ export const MapContainer = ({
         >
           {plan && activeDay && (
             <>
-              <MapViewport places={activeDay.places} selectedPlaceName={activePlaceName} />
+              <MapViewport
+                places={activeDay.places}
+                selectedPlaceName={activePlaceName}
+              />
 
               {path.length > 1 && <RoutePolyline path={path} />}
 
@@ -255,7 +300,9 @@ export const MapContainer = ({
                           </div>
                         )}
                       </div>
-                      <p className="mt-1 line-clamp-2 text-xs text-slate-500">{activePlace.description}</p>
+                      <p className="mt-1 line-clamp-2 text-xs text-slate-500">
+                        {activePlace.description}
+                      </p>
                     </div>
                   </div>
                 </InfoWindow>
